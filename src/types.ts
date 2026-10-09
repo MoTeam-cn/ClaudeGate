@@ -87,6 +87,12 @@ export interface Config {
   oauthTokenUrl: string;
   oauthManualRedirect: string;
   oauthRolesUrl: string;
+  /** GET /api/oauth/profile，用来拿真名字 */
+  oauthProfileUrl: string;
+  /** 出口自检用的 IP 回显服务 */
+  ipCheckUrl: string;
+  /** 出口自检模式：off / warn / block */
+  ipCheckMode: "off" | "warn" | "block";
   apiKeyUrl: string;
 
   defaultModel: string;
@@ -337,6 +343,8 @@ export interface UsageWindow {
   utilization: number | null;
   resetsAt: number | null;
   status?: string;
+  /** limits[] 里带 scope 的行，服务端给的展示标签（模型名或界面名） */
+  scopeLabel?: string;
 }
 
 export interface UsageSnapshot {

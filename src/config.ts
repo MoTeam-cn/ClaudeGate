@@ -127,6 +127,13 @@ export function loadConfig(env: Env): Config {
     oauthTokenUrl: env.OAUTH_TOKEN_URL ?? "",
     oauthManualRedirect: env.OAUTH_MANUAL_REDIRECT ?? PROD.MANUAL_REDIRECT_URL,
     oauthRolesUrl: env.OAUTH_ROLES_URL ?? PROD.ROLES_URL,
+    oauthProfileUrl: env.OAUTH_PROFILE_URL ?? PROD.PROFILE_URL,
+    ipCheckUrl: env.IP_CHECK_URL ?? PROD.IP_CHECK_URL,
+    /* 默认 block：代理没生效就直接不让起。设 IP_CHECK=off 关掉 */
+    ipCheckMode: ((): "off" | "warn" | "block" => {
+      const raw = String(env.IP_CHECK ?? "block").trim().toLowerCase();
+      return raw === "off" || raw === "warn" ? (raw as "off" | "warn") : "block";
+    })(),
     apiKeyUrl: env.API_KEY_URL ?? PROD.API_KEY_URL,
 
     defaultModel: env.DEFAULT_MODEL ?? "claude-sonnet-4-5-20250929",

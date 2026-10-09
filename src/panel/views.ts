@@ -295,6 +295,21 @@ function actBatchDeleteAccounts(ids){
     });
   });
 }
+/* 复制到剪贴板。execCommand 是同步的，在 http 页面也能用；
+   clipboard API 要安全上下文（https 或 localhost），这里只当补充 */
+function copyText(text){
+  var ta = h("textarea",{style:{position:"fixed",top:"-1000px",left:"0",opacity:"0"}});
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch(e){ ok = false; }
+  document.body.removeChild(ta);
+  if(!ok && navigator.clipboard && navigator.clipboard.writeText){
+    try { navigator.clipboard.writeText(text); ok = true; } catch(e2){ ok = false; }
+  }
+  return ok;
+}
 function openAddAccount(){
   var kind = h("select",{class:"el-input__inner"},[
     h("option",{value:"oauth-login",text:"订阅 OAuth（授权登录，能查额度）"}),
@@ -304,34 +319,81 @@ function openAddAccount(){
   var secret = h("textarea",{class:"el-textarea__inner",placeholder:"粘贴 refresh_token 或 sk-ant-..."});
   var label = h("input",{class:"el-input__inner",placeholder:"留空自动命名"});
 
-  /* ---- 授权登录：① 拿链接去登录  ② 把 code 粘回来 ---- */
+  /* ---------- 授权登录：两步卡片 ---------- */
   var started = null;
-  var linkBox = h("div",{});
-  var codeInput = h("input",{class:"el-input__inner",placeholder:"粘贴授权码（形如 xxx#yyy，整段粘进来即可）"});
-  var startBtn = h("button",{class:"el-button el-button--primary",type:"button",text:"① 获取授权链接"});
+
+  var linkInput = h("input",{class:"el-input__inner",readonly:"readonly",placeholder:"点左侧按钮生成"});
+  var copyBtn = h("button",{class:"el-button",type:"button",text:"复制"});
+  var openBtn = h("button",{class:"el-button el-button--primary",type:"button",text:"打开授权页"});
+  copyBtn.disabled = true;
+  openBtn.disabled = true;
+
+  var genBtn = h("button",{class:"el-button el-button--primary",type:"button",text:"生成授权链接"});
+  var linkRow = h("div",{class:"cg-linkrow"},[ linkInput, copyBtn, openBtn ]);
+  var step1Hint = h("div",{class:"cg-step__hint",
+    text:"生成后点「打开授权页」完成登录。按钮被浏览器拦了就先「复制」再手动打开。"});
+  linkRow.style.display = "none";
+  step1Hint.style.display = "none";
+
+  var step1 = h("div",{class:"cg-step"},[
+    h("div",{class:"cg-step__no",text:"1"}),
+    h("div",{class:"cg-step__main"},[
+      h("div",{class:"cg-step__title",text:"生成授权链接并完成登录"}),
+      h("div",{class:"cg-actions"},[ genBtn ]),
+      linkRow, step1Hint
+    ])
+  ]);
+
+  var codeInput = h("input",{class:"el-input__inner",placeholder:"形如 xxx#yyy，整段粘进来即可"});
+  var step2 = h("div",{class:"cg-step"},[
+    h("div",{class:"cg-step__no",text:"2"}),
+    h("div",{class:"cg-step__main"},[
+      h("div",{class:"cg-step__title",text:"把授权码粘回来"}),
+      h("div",{style:{marginTop:"10px"}},[ codeInput ]),
+      h("div",{class:"cg-step__hint",text:"授权成功后页面会显示一段 code，整段复制过来即可。"})
+    ])
+  ]);
+
   var authItem = h("div",{class:"el-form-item"},[
     h("div",{class:"el-form-item__label",text:"授权登录"}),
-    startBtn,
-    linkBox,
-    h("div",{class:"el-form-item__label",style:{marginTop:"14px"},text:"② 粘贴授权码"}),
-    codeInput
+    h("div",{class:"cg-auth"},[ step1, step2 ])
   ]);
+
+  copyBtn.addEventListener("click", function(){
+    if(!started) return;
+    var ok = copyText(started.authorizeUrl);
+    CG.toast(ok ? "链接已复制" : "复制失败，请手动选中复制", ok ? "success" : "warning");
+  });
+  openBtn.addEventListener("click", function(){
+    if(!started) return;
+    var w = window.open(started.authorizeUrl, "_blank", "noopener,noreferrer");
+    if(!w) CG.toast("浏览器拦了新窗口，请用「复制」手动打开","warning");
+  });
 
   /* 拿到链接后对话框**不关**：用户要切到新标签页登录，回来还得在这个框里粘 code */
   function startAuth(){
+    genBtn.disabled = true;
+    genBtn.textContent = "生成中…";
     return CG.api("oauth.start",{}).then(function(r){
       started = r;
-      CG.clear(linkBox);
-      linkBox.appendChild(h("a",{class:"el-button",href:r.authorizeUrl,target:"_blank",rel:"noopener",
-        style:{marginTop:"10px",display:"inline-block"},text:"打开 Anthropic 授权页 ↗"}));
-      linkBox.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px",wordBreak:"break-all"},text:r.authorizeUrl}));
-      linkBox.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px"},
-        text:"按钮被拦就手动复制上面的链接。登录授权后页面会显示一段 code，复制它粘到下面。"}));
-      CG.toast("链接已生成，去新标签页登录","success");
+      linkInput.value = r.authorizeUrl;
+      linkRow.style.display = "";
+      step1Hint.style.display = "";
+      copyBtn.disabled = false;
+      openBtn.disabled = false;
+      step1.classList.add("is-done");
+      genBtn.textContent = "重新生成";
+      genBtn.disabled = false;
+      codeInput.focus();
+      CG.toast("链接已生成，去新标签页完成登录","success");
       return false;
+    }).catch(function(e){
+      genBtn.disabled = false;
+      genBtn.textContent = "生成授权链接";
+      throw e;
     });
   }
-  startBtn.addEventListener("click", function(){ startAuth().catch(CG.showErr); });
+  genBtn.addEventListener("click", function(){ startAuth().catch(CG.showErr); });
 
   var secretItem = h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"凭据"}), secret ]);
   var labelItem = h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"备注名（可选）"}), label ]);
@@ -699,6 +761,44 @@ function renderRtLogs(box){
 }
 
 /* ============ 设置 ============ */
+/* 出口自检卡片。启动时会自动跑一次，这里是手动重跑 —— 换了代理不用重启 */
+function egressCard(){
+  var out = h("div",{});
+  var btn = h("button",{class:"el-button",type:"button",text:"立即检查"});
+
+  function line(k, val, tone){
+    return h("div",{style:{display:"flex",gap:"10px",marginTop:"6px"}},
+      [ h("span",{class:"tiny muted",style:{flex:"0 0 84px"},text:k}),
+        h("span",{class:"mono tiny",style:{color: tone ? "var(--el-color-"+tone+")" : "inherit"},text:val}) ]);
+  }
+  function paint(r){
+    CG.clear(out);
+    var tone = r.conclusive ? (r.proxyIgnored ? "danger" : "success") : "warning";
+    out.appendChild(h("div",{style:{color:"var(--el-color-"+tone+")",fontWeight:"500"},
+      text: r.conclusive ? (r.proxyIgnored ? "代理没生效" : "出口正常") : "无法判定"}));
+    out.appendChild(line("直连出口", r.direct && r.direct.ip ? r.direct.ip : ("取不到（"+((r.direct&&r.direct.error)||"未知")+"）")));
+    out.appendChild(line("经代理出口", r.proxied && r.proxied.ip ? r.proxied.ip : ("取不到（"+((r.proxied&&r.proxied.error)||"未知")+"）")));
+    out.appendChild(line("回显服务", r.url));
+    out.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px",lineHeight:"1.7"},text:r.summary}));
+  }
+
+  btn.addEventListener("click", function(){
+    btn.disabled = true; btn.textContent = "检查中…";
+    CG.clear(out);
+    out.appendChild(h("div",{class:"tiny muted",text:"正在分别经代理与直连查询出口 IP…"}));
+    CG.api("net.ipcheck",{}).then(paint).catch(CG.showErr).then(function(){
+      btn.disabled = false; btn.textContent = "立即检查";
+    });
+  });
+
+  return card("出口自检", h("div",{},[
+    h("div",{class:"tiny muted",style:{lineHeight:"1.7"},
+      text:"分别用带代理和不带代理各查一次出口 IP。两次结果相同就说明请求根本没走代理 —— " +
+           "这时候流量会从本机直出，对上游来说是完全不同的来源。启动时也会自动跑一次。"}),
+    h("div",{style:{marginTop:"10px"}},[ btn ]),
+    out
+  ]));
+}
 function renderSettings(box){
   var host = h("div");
   box.appendChild(host);
@@ -746,6 +846,7 @@ function renderSettings(box){
         }})
       ])));
 
+      host.appendChild(egressCard());
       host.appendChild(adminKeyCard());
       return s;
     });

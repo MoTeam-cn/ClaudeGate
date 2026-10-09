@@ -36,6 +36,8 @@
 |---|---|---|
 | `UPSTREAM_BASE` | `https://api.anthropic.com` | 上游地址 |
 | `UPSTREAM_PROXY` | 空 | 出站代理，见[出站代理](proxy.md) |
+| `IP_CHECK` | `block` | 出口自检。启动时带代理与不带代理各查一次出口 IP，两次相同说明请求没走代理。`block` 拒绝启动 / `warn` 只告警 / `off` 跳过。查不出结论（如内网无直连出口）不算失败 |
+| `IP_CHECK_URL` | `https://ipinfo.io/json` | 出口自检用的 IP 回显服务。返回 `{ip:"..."}` / `{query:"..."}` 或纯 IP 文本都可以 |
 | `TLS_MIN` / `TLS_MAX` | `TLSv1.2` / `TLSv1.3` | 到上游的 TLS 版本范围，**不要随意改**，它是指纹的一部分 |
 | `REWRITE_USER_ID` | `device` | `metadata.user_id` 重写模式：`off` 不动 / `device` 只换 device_id / `full` 连 account_uuid 一起 |
 | `TRANSPORT` | `auto` | 上游通道。`auto` = Bun 且（没配代理或代理是 http/https）时走 `fetch`（JA3 与真 Claude Code 逐位一致，代价是请求头被重排），否则走 `node:https`（保头序、支持 SOCKS5 但 JA3 对不上）。要头序优先就显式设 `https` |
@@ -82,6 +84,7 @@
 | `OAUTH_MODE` | `claude_ai` | `claude_ai` 建订阅账号、走 Bearer 推理，**保留 OAuth 令牌以便查订阅额度**；`console` 会把令牌兑换成 API Key（兑换失败直接报错，不会静默降级成订阅号）；`design` 走设计版客户端 |
 | `OAUTH_CLIENT_ID` / `OAUTH_SCOPES` / `OAUTH_AUTHORIZE_URL` / `OAUTH_TOKEN_URL` | 内置 | 一般不用改 |
 | `OAUTH_MANUAL_REDIRECT` | 官方回调页 | 手动粘贴授权码时的回调地址 |
+| `OAUTH_PROFILE_URL` | `https://api.anthropic.com/api/oauth/profile` | 订阅账号档案端点。用来把「账号 1」这种占位名换成真实用户名（`account.display_name` / `full_name`），拿不到就退回占位名，不影响建号 |
 
 ## 模型与其他
 

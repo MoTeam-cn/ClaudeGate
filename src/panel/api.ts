@@ -4,6 +4,8 @@ import { clampInt } from "../utils.ts";
 import { applyRuntimeSettings } from "../config.ts";
 import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
+import { fetchOauthProfile, profileLabel } from "../pool/profile.ts";
+import { checkEgress } from "../net/ipcheck.ts";
 import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery, UsageSnapshot } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -233,6 +235,18 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
     }
   }
 
+  /** 名字还是系统给的占位符？（这种才值得去上游补真名） */
+  function isPlaceholderLabel(label: string): boolean {
+    const t = label.trim();
+    return (
+      /^账号\s*\d+$/.test(t) ||
+      t === "OAuth 账号" ||
+      t === "Console Key" ||
+      t === "从 credential.json 迁移" ||
+      /^[0-9a-f]{8}$/.test(t)
+    );
+  }
+
   /**
    * 查一次额度并落库；用量接口明说窗口 rejected 就封印到重置时刻。
    * account.usage 与 oauth.finish（加号后自动查）共用这一份，别让封印逻辑长成两套。
@@ -240,6 +254,19 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
   async function refreshUsage(acc: Account, timeoutMs = 15000): Promise<{ snap: UsageSnapshot; sealedUntil: number | null }> {
     const snap = await fetchOauthUsage(cfg, acc, timeoutMs);
     accounts.saveUsage(acc.id, snap);
+
+    /* 名字还是占位的话顺手把档案拉回来。
+       粘贴 refresh_token 建的号在创建时没有 access_token，只有走到这里才拿得到真名 */
+    if (acc.kind === "oauth" && acc.accessToken && isPlaceholderLabel(acc.label)) {
+      const prof = await fetchOauthProfile(cfg, acc.accessToken, 8000);
+      const name = prof ? profileLabel(prof) : null;
+      if (name) {
+        const patch: Record<string, unknown> = { label: name };
+        if (prof && prof.email && !acc.email) patch.email = prof.email;
+        accounts.update(acc.id, patch as never);
+        ctx.log.info("panel: 账号 " + acc.id + " 名称补全为 " + name);
+      }
+    }
 
     let sealed: number | null = null;
     if (snap.ok) {
@@ -306,7 +333,11 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
             usage = r.snap;
             ctx.log.info("panel: oauth usage for " + done.account.id + " ok=" + r.snap.ok + (r.snap.ok ? "" : " err=" + String(r.snap.error ?? "")));
           }
-          sendJson(res, 200, { ok: true, data: { ...publicAccount(done.account), usage } });
+          /* 把档案一并带回去：面板可以顺手显示套餐档位，不用再单开一个接口 */
+          sendJson(res, 200, {
+            ok: true,
+            data: { ...publicAccount(done.account), usage, displayName: done.displayName, profile: done.profile }
+          });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           ctx.log.warn("panel: oauth finish failed: " + msg);
@@ -330,6 +361,14 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         );
         ctx.log.info("panel: account created " + acc.id + " kind=" + kind);
         sendJson(res, 200, { ok: true, data: publicAccount(acc) });
+        return;
+      }
+
+      /* 出口自检。启动时跑过一次，这里是手动再跑 —— 换了代理不用重启就能验 */
+      case "net.ipcheck": {
+        const chk = await checkEgress(cfg, 8000);
+        ctx.log.info("panel: 出口自检 " + chk.summary);
+        sendJson(res, 200, { ok: true, data: chk });
         return;
       }
 

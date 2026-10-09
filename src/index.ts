@@ -2,11 +2,32 @@
 import { createGateway } from "./server.ts";
 import { effectiveTransport } from "./upstream.ts";
 import { isBun } from "./net/fetch.ts";
+import { checkEgress } from "./net/ipcheck.ts";
 
 const gw = createGateway(process.env);
 
-gw.listen()
-  .then((addr) => {
+/**
+ * 出口自检要在开始监听之前跑：如果代理根本没生效，与其让它带着错误的出口去连
+ * Anthropic（那才是真正会招风控的），不如直接不起。
+ * 默认 block，IP_CHECK=warn 只警告，IP_CHECK=off 跳过。
+ */
+async function boot(): Promise<void> {
+  if (gw.cfg.ipCheckMode !== "off") {
+    const chk = await checkEgress(gw.cfg, 8000);
+    if (chk.conclusive && chk.proxyIgnored) {
+      const msg = "出口自检失败 —— " + chk.summary + "（IP_CHECK=" + gw.cfg.ipCheckMode + "）";
+      if (gw.cfg.ipCheckMode === "block") {
+        gw.log.error(msg);
+        gw.log.error("修好代理再启动，或用 IP_CHECK=off 显式跳过这项检查");
+        process.exit(1);
+      }
+      gw.log.warn(msg);
+    } else {
+      gw.log.info("出口自检：" + chk.summary);
+    }
+  }
+  const addr = await gw.listen();
+  {
     gw.log.info("claude-gateway listening on " + addr.address + ":" + addr.port);
     gw.log.info(
       "guard=" + gw.cfg.guardMode +
@@ -30,11 +51,13 @@ gw.listen()
     if (!gw.accounts.list().length) {
       gw.log.warn("号池为空：打开面板添加账号，或访问 /login 走 OAuth 授权");
     }
-  })
-  .catch((e: unknown) => {
-    gw.log.error("listen failed: " + (e instanceof Error && e.stack ? e.stack : String(e)));
-    process.exit(1);
-  });
+  }
+}
+
+boot().catch((e: unknown) => {
+  gw.log.error("启动失败: " + (e instanceof Error && e.stack ? e.stack : String(e)));
+  process.exit(1);
+});
 
 /**
  * 登录密钥横幅。刻意打成多行并带明显边框 —— 这是全流程里唯一一次出现明文，

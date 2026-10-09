@@ -14,6 +14,7 @@
 | **隐写拦截** | 拦下旧版 Claude Code 把「中国时区 / 命中域名名单」回传上游的标记 |
 | **用量与额度** | token 四维统计，可查上游用量，额度耗尽自动封印账号、到点自动恢复 |
 | **出站代理** | `http` / `https` / `socks5` / `socks5h`，用于固定出口 IP |
+| **出口自检** | 启动时带代理与不带代理各查一次出口 IP，两次相同即判为代理没生效并拒绝启动 |
 | **面板** | 号池、API Key、请求日志、运行日志、设置；启动一次之后全在面板里操作 |
 
 ## 快速开始
@@ -39,8 +40,7 @@ docker run -d --name claudegate --restart unless-stopped \
 容器内固定监听 8800，左边宿主机端口随便改。首次启动用 `docker logs claudegate` 拿面板登录密钥；
 主密钥存在 `/data/admin.json`，跟着卷一起持久化。
 
-包是私有的，拉之前要先 `docker login ghcr.io`（PAT 需要 `read:packages`），
-或者在 GitHub 上把包改成公开。详见[部署](docs/deployment.md)。
+镜像目前是公开的，匿名就能拉。国内直连 ghcr 慢的话换镜像站，详见[部署](docs/deployment.md)。
 
 ## 文档
 

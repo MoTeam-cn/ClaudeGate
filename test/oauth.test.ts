@@ -38,6 +38,23 @@ const watchdog = setTimeout(() => { console.log("\n!! 超时"); process.exit(3);
 /* ================= mock 上游：令牌 / profile / 用量 ================= */
 let usageCalls = 0;
 let tokenCalls = 0;
+let profileCalls = 0;
+/** profile 端点要回的状态码 */
+let profileStatus = 200;
+/**
+ * /api/oauth/profile 的真实形状（从 Claude Code 二进制还原）：
+ *   account.display_name / account.full_name，organization.organization_type
+ * 注意 organization_type 是 claude_max 这种，客户端要映射成 max
+ */
+let profilePayload: unknown = {
+  account: { display_name: "Quota User", full_name: "Quota Example", email: "quota@example.com" },
+  organization: {
+    organization_type: "claude_max",
+    rate_limit_tier: "default_claude_max_20x",
+    plan_display_name: "Max 20x",
+    subscription_created_at: "2025-01-01T00:00:00Z"
+  }
+};
 /** 用量端点要回的状态码；设成非 200 就能验失败路径 */
 let usageStatus = 200;
 /** API Key 兑换端点：null 表示让它失败 */
@@ -70,8 +87,14 @@ const upstream = http.createServer((req, res) => {
     });
     return;
   }
+  if (u.startsWith("/api/oauth/profile")) {
+    profileCalls++;
+    send(profileStatus, profilePayload);
+    return;
+  }
   if (u.startsWith("/api/oauth/claude_cli/roles")) {
-    send(200, { email: "quota@example.com", organization: { name: "TestOrg" } });
+    /* 真实端点只回角色与组织名，没有邮箱 —— 名字要靠 /api/oauth/profile */
+    send(200, { organization_role: "owner", workspace_role: "admin", organization_name: "TestOrg" });
     return;
   }
   if (u.startsWith("/api/oauth/usage")) {
@@ -100,6 +123,7 @@ function boot(over: Record<string, string> = {}) {
     /* 三个上游端点全部指向 mock，这样整条链路都能离线跑 */
     OAUTH_TOKEN_URL: base + "/v1/oauth/token",
     OAUTH_ROLES_URL: base + "/api/oauth/claude_cli/roles",
+    OAUTH_PROFILE_URL: base + "/api/oauth/profile",
     API_KEY_URL: base + "/api/oauth/claude_cli/create_api_key",
     ...over
   } as never);
@@ -125,7 +149,11 @@ console.log("\n=== A. 加号后自动查额度 ===");
   const acc = await startAndFinish(gw);
 
   eq("账号建成了", acc.kind, "oauth");
-  eq("邮箱从 profile 挖出来了", acc.label, "quota@example.com");
+  eq("名字用了 profile 的 display_name", acc.label, "Quota User");
+  eq("邮箱也从 profile 里挖出来了", acc.email, "quota@example.com");
+  eq("订阅档位映射成 max", ((acc.profile ?? {}) as { subscriptionType?: string }).subscriptionType, "max");
+  eq("套餐展示名带回来了", ((acc.profile ?? {}) as { planDisplayName?: string }).planDisplayName, "Max 20x");
+  ok("确实查了 profile 端点", profileCalls > 0, "次数=" + profileCalls);
   ok("自动查了一次用量", usageCalls - before === 1, "次数=" + (usageCalls - before));
   ok("响应里带了额度", !!acc.usage, JSON.stringify(acc.usage).slice(0, 160));
   const u = (acc.usage ?? {}) as { ok?: boolean; subscriptionType?: string; windows?: Record<string, { utilization?: number }> };
@@ -212,6 +240,66 @@ console.log("\n=== E. console 模式兑换 API Key 失败要报错，不能静�
   eq("没有留下半个账号", rows.length, 0);
   await gw.close();
   apiKeyPayload = { raw_key: "sk-ant-mock-key" };
+}
+
+console.log("\n=== F. profile 拿不到时不能挡住建号 ===");
+{
+  profileStatus = 500;
+  const gw = boot();
+  const acc = await startAndFinish(gw);
+  eq("账号照样建成了", acc.kind, "oauth");
+  ok("名字退回占位", String(acc.label).length > 0, String(acc.label));
+  eq("没有邮箱", acc.email, null);
+  await gw.close();
+  profileStatus = 200;
+}
+
+console.log("\n=== G. limits[] 新形状（utilization 是 0-100）===");
+{
+  usagePayload = {
+    subscription_type: "pro",
+    rate_limits_available: true,
+    limits: [
+      { kind: "session", group: "session", utilization: 42, severity: "normal",
+        resetsAt: new Date(Date.now() + 3600e3).toISOString() },
+      { kind: "weekly_scoped", group: "weekly", utilization: 7.5, severity: "warning",
+        scope: { label: "Opus" }, resetsAt: new Date(Date.now() + 86400e3).toISOString() }
+    ]
+  };
+  const gw = boot();
+  const acc = await startAndFinish(gw);
+  const u = (acc.usage ?? {}) as { ok?: boolean; subscriptionType?: string; windows?: Record<string, { utilization?: number; status?: string; scopeLabel?: string; resetsAt?: number }> };
+  eq("查询成功", u.ok, true);
+  eq("订阅类型读到了", u.subscriptionType, "pro");
+  eq("session 读数换算成小数", u.windows?.session?.utilization, 0.42);
+  eq("session 状态带过来了", u.windows?.session?.status, "normal");
+  eq("weekly_scoped 也换算成小数", u.windows?.weekly_scoped?.utilization, 0.075);
+  eq("带 scope 的行保留了标签", u.windows?.weekly_scoped?.scopeLabel, "Opus");
+  ok("ISO 时间解析成了 unix 秒", typeof u.windows?.session?.resetsAt === "number" && (u.windows?.session?.resetsAt ?? 0) > 1e9,
+    String(u.windows?.session?.resetsAt));
+  await gw.close();
+}
+
+console.log("\n=== H. 用量响应没有任何可识别字段要报错，不能假装成功 ===");
+{
+  usagePayload = { something_else: true };
+  const gw = boot();
+  const acc = await startAndFinish(gw);
+  const u = (acc.usage ?? {}) as { ok?: boolean; error?: string | null; windows?: Record<string, unknown> };
+  eq("标记为失败", u.ok, false);
+  ok("说明是没解析到字段", String(u.error).includes("没有任何可识别字段"), String(u.error).slice(0, 140));
+  ok("把原始响应带上了", String(u.error).includes("something_else"), String(u.error).slice(0, 160));
+  eq("窗口是空的", Object.keys(u.windows ?? {}).length, 0);
+  await gw.close();
+  usagePayload = {
+    subscription_type: "max",
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: { utilization: 0.42, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+      seven_day: { utilization: 0.13, resets_at: Math.floor(Date.now() / 1000) + 86400 }
+    },
+    limits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 0.42 }]
+  };
 }
 
 clearTimeout(watchdog);

@@ -15,6 +15,8 @@ export interface RawRequestOptions {
   body?: string;
   timeoutMs?: number;
   cfg: Config;
+  /** 绕开代理直连。只有出口自检用得上 —— 平时所有出站都必须走代理 */
+  noProxy?: boolean;
 }
 
 /**
@@ -22,6 +24,10 @@ export interface RawRequestOptions {
  * 原因：fetch 走 undici，不认我们的 keep-alive Agent，也就绕过了代理；
  * 而 oauth 兑换、令牌刷新、用量查询这些恰恰都在墙外，必须一起走代理。
  */
+/* 直连用的 agent：只给出口自检。正常出站一律走 cfg.agent（带代理） */
+const directHttpsAgent = new https.Agent({ keepAlive: false });
+const directHttpAgent = new http.Agent({ keepAlive: false });
+
 export function requestRaw(url: string, opts: RawRequestOptions): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
@@ -36,7 +42,7 @@ export function requestRaw(url: string, opts: RawRequestOptions): Promise<RawRes
         port: target.port || (isHttps ? 443 : 80),
         path: target.pathname + target.search,
         headers: opts.headers,
-        agent: isHttps ? opts.cfg.agent : opts.cfg.agentHttp
+        agent: opts.noProxy ? (isHttps ? directHttpsAgent : directHttpAgent) : (isHttps ? opts.cfg.agent : opts.cfg.agentHttp)
       },
       (res) => {
         const chunks: Buffer[] = [];

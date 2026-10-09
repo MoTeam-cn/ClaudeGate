@@ -46,6 +46,7 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const windows: Record<string, UsageWindow> = {};
 
+  /* ---- 老形状：rate_limits.<name>.utilization（0-1 的小数） ---- */
   const rlRaw = d.rate_limits;
   const rl = rlRaw && typeof rlRaw === "object" ? (rlRaw as Record<string, unknown>) : null;
 
@@ -62,18 +63,42 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
     }
   }
 
-  /* limits[] 是权威数组，用它覆盖同名窗口并补上 status */
+  /* ---- 新形状：limits[] 是权威数组。
+     二进制里的注释（原文引用）：
+       "The server's usage rows (the usage endpoint's limits[]), as sent: which meters
+        apply, their scope, labels, severity and order are the server's"
+       "The server's meter kind, e.g. 'session', 'weekly_all' or 'weekly_scoped'"
+       "The server's row group, e.g. 'session' or 'weekly'"
+       "Share of the window used, 0-100."
+       "ISO 8601 timestamp when the window resets"
+       "The server's reading of the row for a meter's colour, e.g. 'normal', 'warning' or 'critical'"
+     所以 utilization 是百分数，要除以 100 存成小数，跟老形状对齐。 ---- */
   const limits = Array.isArray(d.limits) ? d.limits : [];
   for (const item of limits) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const type = typeof o.rateLimitType === "string" ? o.rateLimitType : null;
-    if (!type) continue;
-    const prev = windows[type] ?? { utilization: null, resetsAt: null };
-    windows[type] = {
-      utilization: numOrNull(o.utilization) ?? prev.utilization,
-      resetsAt: resetOrNull(o.resetsAt) ?? prev.resetsAt,
-      status: typeof o.status === "string" ? o.status : prev.status
+    /* 行名：新的是 kind，老的叫 rateLimitType；再兜一层 group */
+    const name =
+      (typeof o.kind === "string" && o.kind) ||
+      (typeof o.rateLimitType === "string" && o.rateLimitType) ||
+      (typeof o.group === "string" && o.group) ||
+      null;
+    if (!name) continue;
+
+    const rawUtil = numOrNull(o.utilization);
+    /* 0-100 -> 0-1。老形状本身就是小数，所以只在明显超过 1 时才换算 */
+    const util = rawUtil === null ? null : rawUtil > 1.5 ? rawUtil / 100 : rawUtil;
+
+    const prev = windows[name] ?? { utilization: null, resetsAt: null };
+    const sev = typeof o.severity === "string" ? o.severity : (typeof o.status === "string" ? o.status : undefined);
+    const scope = o.scope && typeof o.scope === "object" ? (o.scope as Record<string, unknown>) : null;
+    const scopeLabel = scope ? (typeof scope.label === "string" ? scope.label : null) : null;
+
+    windows[name] = {
+      utilization: util ?? prev.utilization,
+      resetsAt: resetOrNull(o.resetsAt ?? o.resets_at) ?? prev.resetsAt,
+      status: sev ?? prev.status,
+      ...(scopeLabel ? { scopeLabel } : {})
     };
   }
 
@@ -133,6 +158,14 @@ export async function fetchOauthUsage(cfg: Config, account: Account, timeoutMs =
       return fail("响应不是合法 JSON：" + text.slice(0, 120));
     }
     const snap = normalizeOauthUsage(parsed);
+    /* 二进制里对应这句（原文引用）：
+         "Usage fetch returned a fieldless or non-object body (in-band error)"
+       上游会回一个什么字段都没有的 body。以前这里直接返回 ok:true + windows:{}，
+       面板看起来像「查到了但没有额度」，其实是没解析到。现在如实报错并把原文带上，
+       免得用户对着一片空白猜。 */
+    if (Object.keys(snap.windows).length === 0 && !snap.subscriptionType) {
+      return fail("上游返回的用量里没有任何可识别字段（既没有 rate_limits 也没有 limits）。原始响应：" + text.slice(0, 300));
+    }
     /* 顺手把额度已耗尽这件事反映到窗口状态上 */
     for (const w of Object.values(snap.windows)) {
       if (w.status === undefined && w.utilization !== null && w.utilization >= 1) w.status = "rejected";

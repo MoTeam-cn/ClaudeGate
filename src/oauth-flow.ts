@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
-import { buildAuthorizeUrl, exchangeCode, fetchProfile, credentialFromToken, createApiKey } from "./oauth.ts";
+import { buildAuthorizeUrl, exchangeCode, credentialFromToken, createApiKey } from "./oauth.ts";
+import { fetchOauthProfile, profileLabel } from "./pool/profile.ts";
 import { b64url, randHex } from "./utils.ts";
 import type { Account, GatewayContext } from "./types.ts";
 
@@ -48,24 +49,15 @@ export function startOAuth(
 export interface FinishedOAuth {
   account: Account;
   email: string | null;
+  /** 档案里拿到的展示名，没有就是 null */
+  displayName: string | null;
+  /** 原始档案，给面板显示订阅档位用 */
+  profile: unknown;
   scope: string | null;
   apiKey: string | null;
 }
 
 /** 从 profile 里尽量挖出邮箱，挖不到就返回 null */
-export function emailFromProfile(prof: unknown): string | null {
-  if (!prof || typeof prof !== "object") return null;
-  const o = prof as Record<string, unknown>;
-  for (const k of ["email", "email_address", "account_email"]) {
-    const v = o[k];
-    if (typeof v === "string" && v.includes("@")) return v;
-  }
-  for (const k of ["account", "organization", "user"]) {
-    const nested = emailFromProfile(o[k]);
-    if (nested) return nested;
-  }
-  return null;
-}
 
 /**
  * 用回调码完成授权。授权页给的是 code 或 code#state，两种都认。
@@ -98,8 +90,10 @@ export async function finishOAuth(
   });
 
   const cred = credentialFromToken(ctx.cfg, tok);
-  const prof = await fetchProfile(ctx.cfg, tok.access_token);
-  const email = emailFromProfile(prof);
+  /* 查档案拿真名字。/api/oauth/profile 是订阅号才有的接口，Console 模式查不到就退回占位名 */
+  const prof = await fetchOauthProfile(ctx.cfg, tok.access_token);
+  const email = prof?.email ?? null;
+  const displayName = prof ? profileLabel(prof) : null;
 
   /* 只有 Console 模式才把 OAuth 令牌换成 API Key；订阅模式保留 OAuth 令牌，
      这样才能用 OAuth 的用量接口查订阅额度 */
@@ -117,7 +111,7 @@ export async function finishOAuth(
   }
 
   const account = ctx.accounts.create({
-    label: email ?? ("账号 " + (ctx.accounts.list().length + 1)),
+    label: displayName ?? email ?? ("账号 " + (ctx.accounts.list().length + 1)),
     kind: apiKey ? "apikey" : "oauth",
     accessToken: cred.access_token ?? null,
     refreshToken: cred.refresh_token ?? null,
@@ -129,5 +123,5 @@ export async function finishOAuth(
     email
   });
 
-  return { account, email, scope: cred.scope ?? null, apiKey };
+  return { account, email, displayName, profile: prof, scope: cred.scope ?? null, apiKey };
 }

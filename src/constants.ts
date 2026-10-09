@@ -7,6 +7,8 @@ export const PROD = {
   TOKEN_URL: "https://platform.claude.com/v1/oauth/token",
   API_KEY_URL: "https://api.anthropic.com/api/oauth/claude_cli/create_api_key",
   ROLES_URL: "https://api.anthropic.com/api/oauth/claude_cli/roles",
+  PROFILE_URL: "https://api.anthropic.com/api/oauth/profile",
+  IP_CHECK_URL: "https://ipinfo.io/json",
   MANUAL_REDIRECT_URL: "https://platform.claude.com/oauth/code/callback",
   CLAUDEAI_SUCCESS_URL: "https://platform.claude.com/oauth/code/success?app=claude-code",
   CLIENT_ID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",

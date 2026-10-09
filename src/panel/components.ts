@@ -316,6 +316,37 @@ select.cg-colfilter{padding-right:20px!important;background-position:calc(100% -
 .cg-inline-edit{display:inline-block;min-width:120px}
 .cg-inline-edit .el-input__inner{height:24px;font-size:var(--el-font-size-extra-small);padding:0 7px}
 
+/* ============ OAuth 授权登录卡 ============ */
+.cg-auth{
+  border:1px solid var(--el-border-color-lighter);border-radius:var(--el-border-radius-base);
+  background:var(--el-fill-color-blank);overflow:hidden;
+}
+.cg-step{display:flex;gap:10px;padding:12px 14px}
+.cg-step + .cg-step{border-top:1px solid var(--el-border-color-lighter)}
+.cg-step__no{
+  flex:0 0 auto;width:20px;height:20px;border-radius:50%;margin-top:1px;
+  background:var(--el-color-primary-light-9);color:var(--el-color-primary);
+  border:1px solid var(--el-color-primary-light-7);
+  font-size:12px;font-weight:600;line-height:18px;text-align:center;
+}
+.cg-step.is-done .cg-step__no{
+  background:var(--el-color-success-light-9);color:var(--el-color-success);
+  border-color:var(--el-color-success-light-7);
+}
+.cg-step__main{flex:1;min-width:0}
+.cg-step__title{font-size:var(--el-font-size-base);font-weight:500;line-height:20px}
+.cg-step__hint{font-size:var(--el-font-size-extra-small);color:var(--el-text-color-secondary);line-height:1.7;margin-top:8px}
+.cg-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.cg-linkrow{display:flex;gap:8px;align-items:stretch;margin-top:10px}
+.cg-linkrow .el-input__inner{
+  flex:1;min-width:0;height:32px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;color:var(--el-text-color-regular);
+}
+.cg-linkrow .el-button{flex:0 0 auto;height:32px;padding:0 12px}
+.cg-actions .el-button{height:32px;padding:0 14px}
+.cg-step .el-input__inner{height:32px}
+
 /* ============ 移动端 ============ */
 @media (max-width:900px){
   .el-table .cg-filterrow th,.el-table .cg-filterrow td{position:static}
