@@ -8,7 +8,7 @@ import { Readable, Transform } from "node:stream";
 
 import { HOP_BY_HOP, RESPONSE_DROP_HEADERS, DECODED_ENCODINGS, ANTHROPIC_VERSION, AUTH_HEADER_NAMES } from "./constants.ts";
 import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
-import { injectCanonicalHeaders, fingerprintSeed } from "./guard.ts";
+import { injectCanonicalHeaders, injectFingerprintHeaders, fingerprintSeed } from "./guard.ts";
 import { headerValue } from "./utils.ts";
 import { connectViaProxy } from "./net/proxy.ts";
 import { fetchUpstream, fetchTransportUsable, fetchSupportsProxy } from "./net/fetch.ts";
@@ -254,7 +254,13 @@ export function buildUpstreamHeaders(
   let headers: Record<string, string | string[] | undefined> = {};
   for (const e of entries) headers[e.name] = e.value;
 
-  /* 非 Claude Code 指纹的 Key 也必须注入规范头，否则上游一眼看出是第三方客户端 */
+  /* 指纹头（anthropic-version / anthropic-beta / x-claude-code-session-id）任何模式下都补。
+     它们是网关的职责：session-id 从 Key 种子派生，保证同一调用方跨请求稳定。
+     注意这一段读的是 rawHeaders 重建出来的对象，守卫写回的 req.headers 到这里已经不算数，
+     所以注入必须在这里再做一次，否则 claude_code 的 Key 根本拿不到 session-id。 */
+  headers = injectFingerprintHeaders(headers, cfg, fingerprintSeed(auth));
+
+  /* 身份头（user-agent / x-app）：非 Claude Code 指纹的 Key 必须补，否则上游一眼看出是第三方 */
   if (cfg.injectMissing || auth.useClaudeFingerprint === false) {
     headers = injectCanonicalHeaders(headers, cfg, fingerprintSeed(auth));
   }

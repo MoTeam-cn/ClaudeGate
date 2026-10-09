@@ -149,7 +149,12 @@ async function main(): Promise<void> {
   eq("上游收到 x-app", upstream.last?.headers["x-app"], "cli");
   eq("上游收到 session-id", upstream.last?.headers["x-claude-code-session-id"], "0f8fad5b-d9cb-469f-a165-70867728950e");
   eq("上游收到 anthropic-version", upstream.last?.headers["anthropic-version"], "2023-06-01");
-  eq("上游带上 oauth beta", upstream.last?.headers["anthropic-beta"], "oauth-2025-04-20");
+  /* 客户端没发 anthropic-beta 时：网关先补 Claude Code 的标志，再并入账号的 oauth 标志。
+     真 Claude Code 两个都发，所以合并后的结果比只发 oauth 更像它。 */
+  const gotBeta = String(upstream.last?.headers["anthropic-beta"] ?? "");
+  ok("上游带上 Claude Code 的 beta", gotBeta.includes("claude-code-20250219"), gotBeta);
+  ok("上游带上 oauth beta", gotBeta.includes("oauth-2025-04-20"), gotBeta);
+  eq("oauth 标志接在后面", gotBeta.split(",").pop(), "oauth-2025-04-20");
   eq("上游 Authorization 已替换", upstream.last?.headers["authorization"], "Bearer upstream-access-token");
   ok("上游无 x-api-key", upstream.last?.headers["x-api-key"] === undefined);
   ok("网关令牌未外泄", !String(upstream.last?.headers["authorization"]).includes(TOKEN));

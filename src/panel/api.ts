@@ -500,6 +500,19 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         return;
       }
 
+      /* 重置密钥：只换明文，其它配置保留。新明文只在这条响应里回一次 */
+      case "key.reset": {
+        const id = str(body.id);
+        const done = keys.resetSecret(id);
+        if (!done) {
+          sendJson(res, 404, { error: { message: "Key 不存在", code: "not_found" } });
+          return;
+        }
+        ctx.log.warn("panel: api key secret reset " + id);
+        sendJson(res, 200, { ok: true, data: { key: publicKey(done.record, ctx), plaintext: done.plaintext } });
+        return;
+      }
+
       case "key.update": {
         const id = str(body.id);
         const patch: Record<string, unknown> = {};

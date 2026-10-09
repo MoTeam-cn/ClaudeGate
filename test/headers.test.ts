@@ -11,6 +11,7 @@ import path from "node:path";
 
 import { createGateway } from "../src/server.ts";
 import { mergeBeta } from "../src/oauth.ts";
+import { isGuardExempt } from "../src/guard.ts";
 import { signGatewayToken } from "../src/tokens.ts";
 import { request } from "./helpers/client.ts";
 import type { AddressInfo } from "node:net";
@@ -231,14 +232,15 @@ console.log("\n=== E. 凭据头原地改名（Console 号） ===");
 }
 
 
-console.log("\n=== F. 守卫只要求身份头，指纹头由网关自己补 ===");
+console.log("\n=== F. 推理端点：守卫只要求身份头，指纹头由网关自己补 ===");
 {
   /* 背景：默认 GUARD_REQUIRE 曾经是四个头，连 x-claude-code-session-id 都要求客户端给。
      但那个头是网关从 Key 种子派生的（为了跨请求稳定），让客户端提供只会被塞随机值。
      所以现在只要求 user-agent + x-app，其余由网关注入。 */
 
   /* 裸请求：只有 Authorization */
-  const bare = await request(port, "/v1/models", { headers: { authorization: "Bearer " + gwToken } });
+  const MSG_BODY = { model: "claude-sonnet-4-5-20250929", max_tokens: 16, messages: [{ role: "user", content: "hi" }] };
+  const bare = await request(port, "/v1/messages", { headers: { authorization: "Bearer " + gwToken }, body: MSG_BODY });
   eq("裸请求被守卫拒绝", bare.status, 403);
   ok("消息里点明了缺哪两个头",
     bare.text.includes("user-agent") && bare.text.includes("x-app"), bare.text.slice(0, 220));
@@ -248,12 +250,13 @@ console.log("\n=== F. 守卫只要求身份头，指纹头由网关自己补 ===
     !bare.text.includes("[user-agent, x-app, anthropic-version"), bare.text.slice(0, 220));
 
   /* 只补身份头：应该放行 */
-  const withId = await request(port, "/v1/models", {
+  const withId = await request(port, "/v1/messages", {
     headers: {
       authorization: "Bearer " + gwToken,
       "user-agent": "claude-cli/2.1.293 (external, cli)",
       "x-app": "cli"
-    }
+    },
+    body: MSG_BODY
   });
   eq("只带 UA + x-app 就放行", withId.status, 200);
   await sleep(250);
@@ -264,17 +267,47 @@ console.log("\n=== F. 守卫只要求身份头，指纹头由网关自己补 ===
     String(upA?.headers["x-claude-code-session-id"]));
 
   /* 同一个 Key 的 session-id 必须跨请求稳定 —— 这正是它不该由客户端提供的理由 */
-  await request(port, "/v1/models", {
+  await request(port, "/v1/messages", {
     headers: {
       authorization: "Bearer " + gwToken,
       "user-agent": "claude-cli/2.1.293 (external, cli)",
       "x-app": "cli"
-    }
+    },
+    body: MSG_BODY
   });
   await sleep(250);
   const upB = seen[seen.length - 1];
   eq("同一 Key 的 session-id 跨请求稳定",
     upB?.headers["x-claude-code-session-id"], upA?.headers["x-claude-code-session-id"]);
+}
+
+
+console.log("\n=== G. /v1/models 这类只读元数据端点不守卫，缺什么自己补 ===");
+{
+  /* 理由：守卫是让上游看到的「客户端身份」稳定，那是推理请求的事。
+     /v1/models 只是拉个清单，没有推理也没有账号风险，
+     却因为要求 Claude Code 身份头把 curl / 探活 / 监控全挡在外面，得不偿失。 */
+
+  /* 先单测判定函数本身 */
+  eq("GET /v1/models 豁免", isGuardExempt("GET", "/v1/models"), true);
+  eq("GET /v1/models 带查询串也豁免", isGuardExempt("GET", "/v1/models?beta=true"), true);
+  eq("HEAD /v1/models 豁免", isGuardExempt("HEAD", "/v1/models"), true);
+  eq("POST /v1/models 不豁免", isGuardExempt("POST", "/v1/models"), false);
+  eq("/v1/messages 不豁免", isGuardExempt("GET", "/v1/messages"), false);
+  eq("前缀像但不同路径不豁免", isGuardExempt("GET", "/v1/modelsx"), false);
+
+  /* 端到端：裸请求（只有 Authorization）也能拿到模型清单 */
+  const bare = await request(port, "/v1/models", { headers: { authorization: "Bearer " + gwToken } });
+  eq("裸请求直接放行", bare.status, 200);
+  ok("返回的是模型清单", bare.text.includes("claude-"), bare.text.slice(0, 160));
+
+  /* 推理端点必须仍然守卫，否则豁免就变成放水了 */
+  const msg = await request(port, "/v1/messages", {
+    headers: { authorization: "Bearer " + gwToken },
+    body: { model: "claude-sonnet-4-5-20250929", max_tokens: 16, messages: [{ role: "user", content: "hi" }] }
+  });
+  eq("/v1/messages 仍然守卫", msg.status, 403);
+  ok("报的还是守卫错误", msg.text.includes("请求头校验失败"), msg.text.slice(0, 180));
 }
 
 clearTimeout(watchdog);

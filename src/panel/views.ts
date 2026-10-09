@@ -311,11 +311,11 @@ function copyText(text){
   return ok;
 }
 function openAddAccount(){
-  var kind = h("select",{class:"el-input__inner"},[
-    h("option",{value:"oauth-login",text:"订阅 OAuth（授权登录，能查额度）"}),
-    h("option",{value:"oauth",text:"订阅 OAuth（粘贴 refresh_token）"}),
-    h("option",{value:"apikey",text:"Console API Key（sk-ant-...）"})
-  ]);
+  var kind = CG.selectBox([
+    { value:"oauth-login", label:"订阅 OAuth（授权登录，能查额度）" },
+    { value:"oauth", label:"订阅 OAuth（粘贴 refresh_token）" },
+    { value:"apikey", label:"Console API Key（sk-ant-...）" }
+  ], { value:"oauth-login" });
   var secret = h("textarea",{class:"el-textarea__inner",placeholder:"粘贴 refresh_token 或 sk-ant-..."});
   var label = h("input",{class:"el-input__inner",placeholder:"留空自动命名"});
 
@@ -406,7 +406,7 @@ function openAddAccount(){
   kind.addEventListener("change", syncKind);
 
   var body = h("div",{},[
-    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"类型"}), kind ]),
+    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"类型"}), kind.el ]),
     authItem, secretItem, labelItem
   ]);
   syncKind();
@@ -436,15 +436,15 @@ function openAddAccount(){
   });
 }
 function openBatchImport(){
-  var kind = h("select",{class:"el-input__inner"},[
-    h("option",{value:"oauth",text:"订阅 OAuth（每行一个 refresh_token）"}),
-    h("option",{value:"apikey",text:"Console API Key（每行一个 sk-ant-...）"})
-  ]);
+  var kind = CG.selectBox([
+    { value:"oauth", label:"订阅 OAuth（每行一个 refresh_token）" },
+    { value:"apikey", label:"Console API Key（每行一个 sk-ant-...）" }
+  ], { value:"oauth" });
   var lines = h("textarea",{class:"el-textarea__inner",style:{minHeight:"160px"},placeholder:"每行一个，可带备注：refresh_token  备注名"});
   CG.dialog({
     title:"批量导入", wide:true, okText:"导入",
     body:h("div",{},[
-      h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"类型"}), kind ]),
+      h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"类型"}), kind.el ]),
       h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"凭据（每行一个）"}), lines ])
     ]),
     onOk:function(){
@@ -562,30 +562,58 @@ function actBatchDeleteKeys(ids){
     });
   });
 }
+/* 新密钥只显示一次，关掉就没了 —— 创建与重置共用 */
+function showNewKey(plaintext, title){
+  CG.dialog({
+    title: title || "新密钥（只显示这一次）", wide:true,
+    body:h("div",{},[
+      h("div",{class:"el-alert el-alert--warning"},[
+        h("span",{text:"这把 Key 只显示这一次，请立刻保存。关掉这个框之后就再也看不到明文了。"})
+      ]),
+      h("div",{class:"cg-code",text:plaintext}),
+      h("div",{style:{marginTop:"10px"}},[
+        h("button",{class:"el-button",text:"复制",onclick:function(){
+          var ok = copyText(plaintext);
+          CG.toast(ok ? "已复制" : "复制失败，请手动选中复制", ok ? "success" : "warning");
+        }})
+      ])
+    ])
+  });
+}
+
+/* 重置密钥：换一把新的，名字 / 配额 / 绑定 / 指纹策略都保留 */
+function actResetKey(k){
+  CG.confirmDialog(
+    "确定给「" + k.name + "」换一把新密钥？\n" +
+    "旧密钥立刻失效，其余配置（名字、配额、绑定、指纹策略）原样保留。",
+    "重置密钥"
+  ).then(function(yes){
+    if(!yes) return;
+    return CG.api("key.reset",{ id:k.id }).then(function(r){
+      showNewKey(r.plaintext, "「" + k.name + "」的新密钥（只显示这一次）");
+      CG.toast("密钥已重置","success");
+      CG.refresh();
+    });
+  }).catch(CG.showErr);
+}
+
 function openCreateKey(){
   var name = h("input",{class:"el-input__inner",placeholder:"例如 claude-code-本机"});
-  var mode = h("select",{class:"el-input__inner"},[
-    h("option",{value:"claude_code",text:"claude_code（严格校验并注入规范头）"}),
-    h("option",{value:"passthrough",text:"passthrough（不校验，仍注入规范头）"})
-  ]);
+  var mode = CG.selectBox([
+    { value:"claude_code", label:"claude_code（严格校验并注入规范头）" },
+    { value:"passthrough", label:"passthrough（不校验，仍注入规范头）" }
+  ], { value:"claude_code" });
   var quotaBox = CG.switchBox(false);
   CG.dialog({
     title:"创建 API Key", okText:"创建",
     body:h("div",{},[
       h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"名称"}), name ]),
-      h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"指纹策略"}), mode ]),
+      h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"指纹策略"}), mode.el ]),
       h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"启用每日配额"}), quotaBox.el ])
     ]),
     onOk:function(){
       return CG.api("key.create",{ name:name.value, fingerprintMode:mode.value, quotaEnabled:quotaBox.input.checked }).then(function(r){
-        var k = r.plaintext || "";
-        CG.dialog({
-          title:"Key 已创建", wide:true,
-          body:h("div",{},[
-            h("div",{class:"el-alert el-alert--warning"},[ h("span",{text:"这把 Key 只显示这一次，请立刻保存。"}) ]),
-            h("div",{class:"cg-code",text:k})
-          ])
-        });
+        showNewKey(r.plaintext || "", "Key 已创建（只显示这一次）");
         CG.refresh();
       });
     }
@@ -628,16 +656,18 @@ var reqState = { page:1, size:50, outcome:"", protocol:"", search:"", data:null 
 function renderReqLogs(box){
   var host = h("div");
   box.appendChild(host);
-  var outcome = h("select",{class:"el-input__inner cg-colfilter"},[
-    h("option",{value:"",text:"全部结果"}), h("option",{value:"ok",text:"成功"}),
-    h("option",{value:"blocked",text:"被拦截"}), h("option",{value:"error",text:"错误"})
-  ]);
-  var protocol = h("select",{class:"el-input__inner cg-colfilter"},[
-    h("option",{value:"",text:"全部协议"}), h("option",{value:"anthropic",text:"anthropic"}),
-    h("option",{value:"openai",text:"openai"})
-  ]);
+  var outcome = CG.selectBox([
+    { value:"", label:"全部结果" }, { value:"ok", label:"成功" },
+    { value:"blocked", label:"被拦截" }, { value:"error", label:"错误" }
+  ], { value:reqState.outcome });
+  outcome.el.classList.add("cg-colfilter");
+  var protocol = CG.selectBox([
+    { value:"", label:"全部协议" }, { value:"anthropic", label:"anthropic" },
+    { value:"openai", label:"openai" }
+  ], { value:reqState.protocol });
+  protocol.el.classList.add("cg-colfilter");
   var search = h("input",{class:"el-input__inner",placeholder:"req-id / 路径 / 模型 / 账号 / IP"});
-  outcome.value = reqState.outcome; protocol.value = reqState.protocol; search.value = reqState.search;
+  search.value = reqState.search;
   function apply(){ reqState.outcome=outcome.value; reqState.protocol=protocol.value; reqState.search=search.value; reqState.page=1; load(); }
   search.addEventListener("keydown", function(e){ if(e.key==="Enter") apply(); });
   outcome.addEventListener("change", apply);
@@ -676,10 +706,10 @@ function renderReqLogs(box){
         { key:"reqId", label:"req-id", render:function(r){ return h("span",{class:"mono tiny",text:r.reqId||"-"}); } },
         { key:"ip", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.ip||"-"}); } },
         { key:"keyName", label:"Key", render:function(r){ return r.keyName||"-"; } },
-        { key:"protocol", label:"协议", sortable:true, filter:{type:"slot", el:protocol} },
+        { key:"protocol", label:"协议", sortable:true, filter:{type:"slot", el:protocol.el} },
         { key:"model", label:"模型", render:function(r){ return h("span",{class:"mono tiny",text:r.model||"-"}); } },
         { key:"accountLabel", label:"账号", render:function(r){ return r.accountLabel||"-"; } },
-        { key:"status", label:"状态", sortable:true, filter:{type:"slot", el:outcome}, render:function(r){
+        { key:"status", label:"状态", sortable:true, filter:{type:"slot", el:outcome.el}, render:function(r){
             if(r.blocked) return tag("拦截","danger");
             if(r.status>=400) return tag(String(r.status),"warning");
             return tag(String(r.status||200),"success");
@@ -708,12 +738,13 @@ var rtState = { page:1, size:100, level:"", search:"" };
 function renderRtLogs(box){
   var host = h("div");
   box.appendChild(host);
-  var level = h("select",{class:"el-input__inner cg-colfilter"},[
-    h("option",{value:"",text:"全部级别"}), h("option",{value:"debug",text:"debug"}),
-    h("option",{value:"info",text:"info"}), h("option",{value:"warn",text:"warn"}), h("option",{value:"error",text:"error"})
-  ]);
+  var level = CG.selectBox([
+    { value:"", label:"全部级别" }, { value:"debug", label:"debug" },
+    { value:"info", label:"info" }, { value:"warn", label:"warn" }, { value:"error", label:"error" }
+  ], { value:rtState.level });
+  level.el.classList.add("cg-colfilter");
   var search = h("input",{class:"el-input__inner",placeholder:"搜索日志内容"});
-  level.value = rtState.level; search.value = rtState.search;
+  search.value = rtState.search;
   function apply(){ rtState.level=level.value; rtState.search=search.value; rtState.page=1; load(); }
   search.addEventListener("keydown", function(e){ if(e.key==="Enter") apply(); });
   level.addEventListener("change", apply);
@@ -743,7 +774,7 @@ function renderRtLogs(box){
       CG.clear(listHost);
       var cols = [
         { key:"ts", label:"时间", sortable:true, render:function(r){ return CG.fmtTime(r.ts); } },
-        { key:"level", label:"级别", sortable:true, filter:{type:"slot", el:level}, render:function(r){
+        { key:"level", label:"级别", sortable:true, filter:{type:"slot", el:level.el}, render:function(r){
             var t = r.level==="error"?"danger":(r.level==="warn"?"warning":(r.level==="debug"?"info":"success"));
             return tag(r.level,t);
           } },
@@ -805,33 +836,32 @@ function renderSettings(box){
   CG.onRefresh(function(){
     return CG.api("settings").then(function(s){
       CG.clear(host);
-      var guard = h("select",{class:"el-input__inner"},[
-        h("option",{value:"strict",text:"strict（缺规范头直接 403）"}),
-        h("option",{value:"warn",text:"warn（只记日志）"}),
-        h("option",{value:"off",text:"off（不校验）"})
-      ]);
-      var stego = h("select",{class:"el-input__inner"},[
-        h("option",{value:"block",text:"block（拦截并说明）"}),
-        h("option",{value:"strip",text:"strip（清洗后转发）"}),
-        h("option",{value:"log",text:"log（只记日志）"}),
-        h("option",{value:"off",text:"off（不检测）"})
-      ]);
-      var reqid = h("select",{class:"el-input__inner"},[
-        h("option",{value:"error",text:"error（只在错误响应里带）"}),
-        h("option",{value:"always",text:"always（成功也带）"}),
-        h("option",{value:"off",text:"off"})
-      ]);
+      var guard = CG.selectBox([
+        { value:"strict", label:"strict（缺规范头直接 403）" },
+        { value:"lenient", label:"lenient（缺头放行并告警）" },
+        { value:"off", label:"off（不校验）" }
+      ], { value:s.guardMode });
+      var stego = CG.selectBox([
+        { value:"block", label:"block（拦截并说明）" },
+        { value:"strip", label:"strip（清洗后转发）" },
+        { value:"log", label:"log（只记日志）" },
+        { value:"off", label:"off（不检测）" }
+      ], { value:s.stegoMode });
+      var reqid = CG.selectBox([
+        { value:"error", label:"error（只在错误响应里带）" },
+        { value:"always", label:"always（成功也带）" },
+        { value:"off", label:"off" }
+      ], { value:s.reqIdInResponse });
       var injectBox = CG.switchBox(s.injectMissing);
       var inject = injectBox.input;
       var keep = h("input",{class:"el-input__inner",type:"number",value:s.logRetentionDays});
       var maxrt = h("input",{class:"el-input__inner",type:"number",value:s.runtimeLogMax});
-      guard.value=s.guardMode; stego.value=s.stegoMode; reqid.value=s.reqIdInResponse;
 
       host.appendChild(card("策略设置", h("div",{},[
         h("div",{class:"cg-row"},[
-          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"请求头守卫"}), guard ]),
-          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"隐写拦截"}), stego ]),
-          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"请求 ID 回传"}), reqid ])
+          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"请求头守卫"}), guard.el ]),
+          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"隐写拦截"}), stego.el ]),
+          h("div",{class:"el-form-item cg-col"},[ h("div",{class:"el-form-item__label",text:"请求 ID 回传"}), reqid.el ])
         ]),
         h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"缺失规范头时自动注入"}), injectBox.el ]),
         h("div",{class:"cg-row"},[

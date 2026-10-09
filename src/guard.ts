@@ -6,6 +6,24 @@ import type { IncomingMessage } from "node:http";
 const UA_RE = /^claude-(cli|code)\//i;
 const XAPP_RE = /^cli(-bg)?$/i;
 
+/**
+ * 不守卫的只读元数据端点。
+ *
+ * 守卫的目的是让上游看到的「客户端身份」稳定，那是推理请求的事。
+ * /v1/models 只是拉个模型清单，没有推理、没有账号风险，
+ * 却因为要求客户端带 Claude Code 身份头而把 curl / 探活 / 监控全挡在外面 —— 得不偿失。
+ * 这里改成「缺什么就自己补上」，指纹照样是 Claude Code 的，只是不再拒绝。
+ */
+const GUARD_EXEMPT: readonly RegExp[] = [/^\/v1\/models(\/|$)/];
+
+/** 这个方法 + 路径要不要跳过守卫（只读元数据端点） */
+export function isGuardExempt(method: string, url: string): boolean {
+  const m = method.toUpperCase();
+  if (m !== "GET" && m !== "HEAD") return false;
+  const path = (url.split("?")[0] ?? "");
+  return GUARD_EXEMPT.some((re) => re.test(path));
+}
+
 export interface GuardResult {
   ok: boolean;
   headers: Record<string, string | string[] | undefined>;
@@ -97,8 +115,15 @@ export function fingerprintSeed(auth: AuthState): string {
  * 其它 Key 不守卫，但强制注入规范指纹，免得上游把请求看成第三方客户端。
  */
 export function applyGuard(req: IncomingMessage, auth: AuthState, cfg: Config, log?: Logger): GuardResult {
-  const enforce = auth.useClaudeFingerprint !== false;
   const seed = fingerprintSeed(auth);
+
+  /* 只读元数据端点：不守卫，缺头就自己补全成 Claude Code 的样子 */
+  if (isGuardExempt(req.method ?? "GET", req.url ?? "")) {
+    log?.debug("header guard skipped (metadata endpoint): " + String(req.url));
+    return { ok: true, headers: injectCanonicalHeaders(req.headers, cfg, seed), missing: [] };
+  }
+
+  const enforce = auth.useClaudeFingerprint !== false;
 
   if (!enforce) {
     const headers = injectCanonicalHeaders(req.headers, cfg, seed);

@@ -75,6 +75,32 @@ ok("面板路由不再对页面做鉴权", !src("../routes/panel.ts").includes("
 ok("登录成功页不再把令牌拼进链接", !src("../routes/auth.ts").includes("/panel?key="));
 ok("根路由不再带 key 跳转", !src("../routes/admin.ts").includes('location: "/panel" + '));
 
+/* 下拉框：原生 <select> 的弹出层由操作系统画，跟面板其它部分两个世界，所以自绘了一个 */
+const viewsSrc = src("views.ts");
+/* 不用正则字面量 —— node 的类型剥离器对它们挑刺 */
+const countOf = (hay: string, needle: string): number => hay.split(needle).length - 1;
+ok("自绘下拉组件在 client.ts 里", authSrc.includes("function selectBox("));
+ok("自绘下拉已导出", authSrc.includes("window.CG.selectBox = selectBox"));
+eq("视图层不再用原生 select", countOf(viewsSrc, 'h("select"'), 0);
+ok("表格筛选也用自绘下拉", authSrc.includes("var sel = selectBox("));
+ok("弹层样式在组件表里", src("components.ts").includes(".cg-select__drop{"));
+/* 组件对象不是 DOM 元素，当 slot 用时必须取 .el，否则 appendChild 会炸 */
+ok("slot 筛选取的是 .el",
+  viewsSrc.includes('type:"slot", el:protocol.el') &&
+  viewsSrc.includes('type:"slot", el:outcome.el') &&
+  viewsSrc.includes('type:"slot", el:level.el'));
+ok("没有把组件对象直接塞给 slot",
+  !viewsSrc.includes('type:"slot", el:protocol}') &&
+  !viewsSrc.includes('type:"slot", el:outcome}') &&
+  !viewsSrc.includes('type:"slot", el:level}'));
+ok("设置页守卫选项用真实枚举 lenient", viewsSrc.includes('value:"lenient"'));
+/* 注意别写太宽：运行日志级别筛选里的 warn 是合法的日志级别，不是守卫枚举 */
+ok("守卫不再有会被静默忽略的 warn 选项", !viewsSrc.includes('value:"warn", label:"warn（只记日志）"'));
+/* Key 重置：换密钥而不是逼人删了重建 */
+ok("面板有 key.reset 动作", src("api.ts").includes('case "key.reset"'));
+ok("Key 行有重置按钮", viewsSrc.includes("重置密钥"));
+ok("store 暴露 resetSecret", src("../store/apikeys.ts").includes("resetSecret"));
+
 /* ================= 内联脚本可解析 ================= */
 console.log("\n=== B. 内联脚本 ===");
 const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);

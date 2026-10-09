@@ -77,6 +77,8 @@ export interface ApiKeyStore {
   list(): ApiKeyRecord[];
   get(id: string): ApiKeyRecord | null;
   create(input: ApiKeyInput): { record: ApiKeyRecord; plaintext: string };
+  /** 换一把新密钥，其余配置（名字、额度、绑定、指纹策略）原样保留 */
+  resetSecret(id: string): { record: ApiKeyRecord; plaintext: string } | null;
   importKey(input: ApiKeyInput, plaintext: string): ApiKeyRecord;
   update(id: string, patch: Partial<ApiKeyInput> & { enabled?: boolean }): ApiKeyRecord | null;
   remove(id: string): boolean;
@@ -142,6 +144,21 @@ export function createApiKeyStore(db: Database): ApiKeyStore {
 
   function importKey(input: ApiKeyInput, plaintext: string): ApiKeyRecord {
     return insert(input, plaintext);
+  }
+
+  /**
+   * 重置密钥。只换 key_hash / key_prefix，其它字段一律不动 ——
+   * 用户想换一把密钥时不该被迫重建整个 Key（那样额度、绑定、指纹策略全丢）。
+   */
+  function resetSecret(id: string): { record: ApiKeyRecord; plaintext: string } | null {
+    const cur = get(id);
+    if (!cur) return null;
+    const plaintext = newApiKeyPlaintext();
+    raw
+      .prepare("UPDATE api_keys SET key_hash = ?, key_prefix = ?, updated_at = ? WHERE id = ?")
+      .run(...bind([hashApiKey(plaintext), apiKeyPrefix(plaintext), Math.floor(Date.now() / 1000), id]));
+    const record = get(id);
+    return record ? { record, plaintext } : null;
   }
 
   function update(id: string, patch: Partial<ApiKeyInput> & { enabled?: boolean }): ApiKeyRecord | null {
@@ -254,6 +271,7 @@ export function createApiKeyStore(db: Database): ApiKeyStore {
     list,
     get,
     create,
+    resetSecret,
     importKey,
     update,
     remove,

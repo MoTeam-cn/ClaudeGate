@@ -190,6 +190,21 @@ ok("明文不落库", !JSON.stringify(gw.keys.list()).includes(mk.plaintext.slic
 
 const mkPass = gw.keys.create({ name: "cherry", fingerprintMode: "passthrough" });
 
+/* 重置密钥：只换明文，名字 / 配额 / 指纹策略 / 创建时间都要原样保留 */
+const mkReset = gw.keys.create({ name: "to-reset", fingerprintMode: "passthrough", rateLimitPerMin: 7 });
+const beforeReset = gw.keys.get(mkReset.record.id);
+const rs = gw.keys.resetSecret(mkReset.record.id);
+ok("重置返回了新明文", !!rs && rs.plaintext.startsWith("sk-gw-"), rs ? rs.plaintext.slice(0, 12) : "null");
+ok("新明文与旧的不同", !!rs && rs.plaintext !== mkReset.plaintext);
+eq("旧明文立刻失效", gw.keys.findByPlaintext(mkReset.plaintext), null);
+eq("新明文能查到", rs ? gw.keys.findByPlaintext(rs.plaintext)?.id : null, mkReset.record.id);
+eq("主键没变", rs?.record.id, mkReset.record.id);
+eq("名字保留", rs?.record.name, beforeReset?.name);
+eq("指纹策略保留", rs?.record.fingerprintMode, beforeReset?.fingerprintMode);
+eq("限流配置保留", rs?.record.rateLimitPerMin, beforeReset?.rateLimitPerMin);
+eq("创建时间没变", rs?.record.createdAt, beforeReset?.createdAt);
+eq("不存在的 id 返回 null", gw.keys.resetSecret("key_nope"), null);
+
 /* ============ D. 鉴权与守卫策略 ============ */
 console.log("\n=== D. 鉴权与守卫策略 ===");
 
@@ -321,6 +336,23 @@ const createdPlain = String(asRecord(asRecord(created.json).data).plaintext ?? "
 ok("面板返回一次性明文", createdPlain.startsWith("sk-gw-"), createdPlain.slice(0, 12));
 const createdUsage = await request(addr.port, "/v1/messages", { headers: { "content-type": "application/json", "x-api-key": createdPlain }, body: BODY });
 eq("面板造的 Key 能用", createdUsage.status, 200);
+
+const createdKey = asRecord(asRecord(created.json).data).key as Record<string, unknown>;
+const createdId = String(createdKey.id ?? "");
+const reset = await request(addr.port, "/panel/api?action=key.reset&key=" + ADMIN, {
+  method: "POST",
+  body: { id: createdId }
+});
+eq("面板重置 Key 200", reset.status, 200);
+const resetPlain = String(asRecord(asRecord(reset.json).data).plaintext ?? "");
+ok("返回一次性新明文", resetPlain.startsWith("sk-gw-"), resetPlain.slice(0, 12));
+ok("新明文与旧的不同", resetPlain !== createdPlain);
+const oldGone = await request(addr.port, "/v1/messages", { headers: { "content-type": "application/json", "x-api-key": createdPlain }, body: BODY });
+eq("旧明文立刻失效", oldGone.status, 401);
+const newWorks = await request(addr.port, "/v1/messages", { headers: { "content-type": "application/json", "x-api-key": resetPlain }, body: BODY });
+eq("新明文能用", newWorks.status, 200);
+const missing = await request(addr.port, "/panel/api?action=key.reset&key=" + ADMIN, { method: "POST", body: { id: "key_nope" } });
+eq("不存在的 Key 返回 404", missing.status, 404);
 
 const saved = await request(addr.port, "/panel/api?action=settings.save&key=" + ADMIN, {
   method: "POST",

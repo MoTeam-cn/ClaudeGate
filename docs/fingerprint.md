@@ -250,6 +250,16 @@ session_id: K(),
 `metadata` 不参与 prompt cache，也不影响模型输出，只影响上游对设备身份的归并。
 要恢复逐字节透传就把 `REWRITE_USER_ID` 设为 `off`。
 
+## /v1/models 不受守卫
+
+`GET /v1/models`（以及 HEAD）**不守卫**，缺什么头网关自己补。
+
+守卫的目的是让上游看到的「客户端身份」稳定，那是**推理请求**的事。`/v1/models` 只是拉个清单，
+没有推理、没有账号风险，却因为要求 Claude Code 身份头把 curl / 探活 / 监控全挡在外面，得不偿失。
+
+所以这条路径直接放行，同时把 `User-Agent` / `x-app` / `anthropic-version` / `anthropic-beta` /
+`x-claude-code-session-id` 全补成 Claude Code 的样子。`POST /v1/models` 与 `/v1/messages` 仍然守卫。
+
 ## 遇到 403「请求头校验失败」怎么办
 
 绑定 `claude_code` 指纹策略的 Key，网关会拒绝看起来不像 Claude Code 的客户端，

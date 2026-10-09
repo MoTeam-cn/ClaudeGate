@@ -304,8 +304,7 @@ select.el-input__inner{appearance:none;background-image:linear-gradient(45deg,tr
 /* ============ 列筛选 / 批量选择 / 就地编辑 ============ */
 .el-table .cg-filterrow th,.el-table .cg-filterrow td{padding:4px 8px;background:var(--el-bg-color-overlay);border-bottom:1px solid var(--el-border-color-lighter);position:sticky;top:37px;z-index:1}
 .el-table .cg-filterrow td{padding:4px 6px}
-.cg-colfilter{height:26px!important;font-size:var(--el-font-size-extra-small)!important;padding:0 7px!important;min-width:70px;width:100%}
-select.cg-colfilter{padding-right:20px!important;background-position:calc(100% - 12px) 11px,calc(100% - 8px) 11px!important}
+.cg-colfilter{min-width:70px;width:100%}
 .el-table .cg-col-check{width:34px;padding-left:10px;padding-right:0}
 .el-table .cg-col-check input{width:14px;height:14px;cursor:pointer;accent-color:var(--el-color-primary)}
 .el-table tbody tr.is-selected td{background:var(--el-color-primary-light-9)!important}
@@ -346,6 +345,36 @@ select.cg-colfilter{padding-right:20px!important;background-position:calc(100% -
 .cg-linkrow .el-button{flex:0 0 auto;height:32px;padding:0 12px}
 .cg-actions .el-button{height:32px;padding:0 14px}
 .cg-step .el-input__inner{height:32px}
+
+/* ============ 下拉框（自绘，替代原生 select）============ */
+.cg-select{position:relative;display:block;outline:none}
+.cg-select__inner{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none}
+.cg-select__label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cg-select__label.is-placeholder{color:var(--el-text-color-placeholder)}
+.cg-select__arrow{
+  flex:0 0 auto;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;
+  border-top:5px solid var(--el-text-color-placeholder);transition:transform var(--el-transition-duration);
+}
+.cg-select.is-open .cg-select__arrow{transform:rotate(180deg)}
+.cg-select.is-open .cg-select__inner{border-color:var(--el-color-primary)}
+.cg-select:focus-visible .cg-select__inner{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-8)}
+.cg-select.is-disabled{opacity:.6}
+.cg-select.is-disabled .cg-select__inner{cursor:not-allowed;background:var(--el-fill-color-light)}
+.cg-select__drop{
+  position:fixed;z-index:3000;background:var(--el-bg-color-overlay);
+  border:1px solid var(--el-border-color-light);border-radius:var(--el-border-radius-base);
+  box-shadow:var(--el-box-shadow-light);padding:6px 0;max-height:264px;overflow-y:auto;
+}
+.cg-select__empty{padding:8px 16px;font-size:var(--el-font-size-extra-small);color:var(--el-text-color-secondary)}
+.el-select-dropdown__item{
+  padding:0 16px;height:34px;line-height:34px;font-size:var(--el-font-size-base);
+  color:var(--el-text-color-regular);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.el-select-dropdown__item:hover{background:var(--el-fill-color-light)}
+.el-select-dropdown__item.is-selected{color:var(--el-color-primary);font-weight:600;background:var(--el-color-primary-light-9)}
+/* 列筛选里的下拉要更矮一些，跟输入框对齐 */
+.cg-colfilter .cg-select__inner{height:26px!important;font-size:var(--el-font-size-extra-small)!important;padding:0 7px!important;min-width:70px}
+.cg-colfilter .cg-select__arrow{border-top-width:4px}
 
 /* ============ 移动端 ============ */
 @media (max-width:900px){
