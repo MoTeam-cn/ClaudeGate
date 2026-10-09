@@ -10,6 +10,7 @@
 | 搞懂指纹守卫和隐写拦截在做什么 | [指纹与隐写](fingerprint.md) |
 | 看用量、查额度、处理账号被封 | [用量与额度](usage-quota.md) |
 | 配代理固定出口 IP | [出站代理](proxy.md) |
+| 用面板管号池与日志 | [面板](panel.md) |
 | 改代码前先理解结构 | [架构](architecture.md) |
 | 跑测试、调试、抓包 | [开发](development.md) |
 | 知道有什么坑 | [已知风险](risks.md) |

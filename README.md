@@ -45,6 +45,7 @@ docker run -d --name claudegate --restart unless-stopped \
 | [指纹与隐写](docs/fingerprint.md) | 两种 Key 策略、规范头注入、隐写码位表、请求 ID |
 | [用量与额度](docs/usage-quota.md) | token 统计、上游用量查询、额度耗尽封印与恢复 |
 | [出站代理](docs/proxy.md) | 四种代理协议、覆盖范围、排查 |
+| [面板](docs/panel.md) | 零依赖单页面板的结构与六个痛点怎么解的 |
 | [架构](docs/architecture.md) | 请求生命周期、模块地图、存储与调度 |
 | [开发](docs/development.md) | 命令、测试构成、抓包脚本、踩过的坑 |
 | [已知风险](docs/risks.md) | 条款、版本、安全注意事项 |

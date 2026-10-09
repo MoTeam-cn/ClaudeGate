@@ -47,6 +47,14 @@ src/
   tokens.ts             自签网关令牌（gw1.）
   models.ts             模型别名映射
 
+  panel/
+    api.ts              面板后端：一个 action 端点，GET 读 POST 写
+    tokens.ts           设计 token（Element 调色板，亮暗两套）
+    components.ts       组件样式（类名对齐 Element）
+    client.ts           面板运行时：DOM、消息、对话框、表格、路由、自动刷新
+    views.ts            各页视图
+    shell.ts            外壳，拼成单页 HTML
+
   net/
     proxy.ts            出站代理：http / https / socks5 / socks5h
     request.ts          代理感知的 HTTP 客户端（替掉全局 fetch）
