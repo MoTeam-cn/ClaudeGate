@@ -158,12 +158,78 @@ location / {
 
 ## 升级
 
+**`docker pull` 不会更新正在跑的容器** —— 它只把新镜像下到本地，容器还挂在旧镜像上，必须重建。
+
+### 用 compose（推荐）
+
 ```bash
+cd <项目目录>
 docker compose -f deploy/docker-compose.yml pull
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
+`up -d` 发现镜像变了会自动重建容器。**命名卷 `claudegate-data` 会保留** ——
+账号、API Key、面板登录密钥、日志全在里面，不会丢。
+
 数据库表结构变更由启动时的迁移自动处理（缺列会 `ALTER TABLE` 补上），不用手工动库。
+
+### 用手敲的 docker run
+
+```bash
+docker rm -f claudegate
+docker run -d --name claudegate --restart unless-stopped \
+  -p 27666:8800 \
+  -v claudegate-data:/data \
+  ghcr.io/moteam-cn/claudegate:latest
+```
+
+关键是 `-v` 必须和原来一模一样。原来用宿主目录（比如 `-v /opt/claudegate/data:/data`）就继续用它，
+别换成命名卷，否则等于换了个空库。
+
+### 钉版本
+
+`latest` 跟着 main 走。要可复现就用 sha 标签：
+
+```bash
+docker pull ghcr.io/moteam-cn/claudegate:sha-cd326f8b04e56594245b88c8f40c5d72a160fece
+```
+
+标签规则：`latest`（main 最新）、`main`（分支名）、`sha-<完整40位>`（每个提交），
+打 `v*` 标签时还会有语义化版本号。
+
+### 换镜像站
+
+国内直连 ghcr.io 慢，可以换前缀式镜像站 —— 镜像名整体替换：
+
+```
+ghcr.io/moteam-cn/claudegate:latest
+  ↓
+ghcr.nju.edu.cn/moteam-cn/claudegate:latest
+```
+
+**实测 `ghcr.nju.edu.cn` 是匿名直通镜像**：不需要 token、不需要 `docker login`，
+`latest` / `main` / sha 标签都能取，层也能正常下（amd64，10 层，压缩后 40.5 MB）。
+
+用 compose 的话改 `deploy/docker-compose.yml` 里的 `image:`：
+
+```yaml
+services:
+  claudegate:
+    image: ghcr.nju.edu.cn/moteam-cn/claudegate:latest
+```
+
+注意顺序是 **改 image → pull → up -d**。镜像名变了 compose 会当成另一个镜像，
+光 pull 替换不掉原来的容器。
+
+### 更新后确认
+
+```bash
+docker logs --tail 40 claudegate                        # 有没有启动失败
+docker inspect -f '{{.State.Health.Status}}' claudegate # 应为 healthy
+```
+
+面板登录密钥只在首次派发时打印一次，更新重启**不会**再打印 —— 沿用原来的即可。
+忘了就去面板「设置」里重置，或删掉 `/data/admin.json` 重启重新派发。
 
 ## 备份
 

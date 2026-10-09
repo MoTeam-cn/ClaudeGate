@@ -37,6 +37,14 @@ docker run -d --name claudegate --restart unless-stopped \
   ghcr.io/moteam-cn/claudegate:latest
 ```
 
+升级就是重建容器（`docker pull` 不会替换正在跑的容器）：
+
+```bash
+docker compose -f deploy/docker-compose.yml pull && docker compose -f deploy/docker-compose.yml up -d
+```
+
+国内拉不动就把镜像名换成 `ghcr.nju.edu.cn/moteam-cn/claudegate:latest`（匿名直通，实测可用）。
+
 容器内固定监听 8800，左边宿主机端口随便改。首次启动用 `docker logs claudegate` 拿面板登录密钥；
 主密钥存在 `/data/admin.json`，跟着卷一起持久化。
 
