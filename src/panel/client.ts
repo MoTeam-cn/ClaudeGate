@@ -104,7 +104,7 @@ function api(action, params){
        这里不再往下走错误分支，免得同时弹窗又弹 toast */
     if(r.status === 401){
       clearToken();
-      askToken("管理员令牌无效或已过期，请重新输入").then(function(){ refresh(); });
+      askToken("登录密钥无效或已过期，请重新输入").then(function(){ refresh(); });
     }
     return r.text().then(function(t){
       var d = null;
@@ -202,15 +202,16 @@ function promptDialog(title, label, value, placeholder){
 }
 
 /* ============ 要令牌 ============ */
-/* 不可关闭：没令牌什么都看不到。先用一次真实请求校验，错的令牌不写进 localStorage。 */
+/* 不可关闭：没密钥什么都看不到。先用一次真实请求校验，错的密钥不写进 localStorage。
+   密钥首次启动时在日志里打印过一次（cgk_ 开头），忘了就在面板「设置」里重置。 */
 var askingToken = null;
 function askToken(msg){
   if(askingToken) return askingToken;
   askingToken = new Promise(function(resolve){
-    var input = h("input",{class:"el-input__inner",type:"password",placeholder:"ADMIN_TOKEN",autocomplete:"off"});
+    var input = h("input",{class:"el-input__inner",type:"password",placeholder:"cgk_...",autocomplete:"off"});
     var err = h("div",{class:"cg-form-err"});
     var box = h("div",{class:"el-form-item"},[
-      h("div",{class:"el-form-item__label",text:msg || "请输入管理员令牌（服务端 ADMIN_TOKEN）"}),
+      h("div",{class:"el-form-item__label",text:msg || "请输入面板登录密钥（首次启动时打印在日志里，cgk_ 开头）"}),
       input, err
     ]);
     function submit(){
@@ -219,7 +220,7 @@ function askToken(msg){
       err.textContent = "校验中…";
       return fetch("/panel/api?action=overview", { headers:{ "x-admin-token": v } }).then(function(r){
         if(!r.ok){
-          err.textContent = r.status === 401 ? "令牌不对" : ("校验失败 HTTP " + r.status);
+          err.textContent = r.status === 401 ? "密钥不对" : ("校验失败 HTTP " + r.status);
           return false;
         }
         err.textContent = "";
@@ -233,7 +234,7 @@ function askToken(msg){
       });
     }
     dialog({
-      title:"需要管理员令牌",
+      title:"需要登录密钥",
       body:box,
       maskClose:false,
       noClose:true,
