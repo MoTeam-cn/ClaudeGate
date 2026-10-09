@@ -1,0 +1,35 @@
+# ClaudeGate 一键起服务
+# 用法：docker compose -f deploy/docker-compose.yml up -d
+services:
+  claudegate:
+    image: ghcr.io/moteam-cn/claudegate:latest
+    # 想自己构建就把上面那行换成：
+    # build:
+    #   context: ..
+    #   dockerfile: Dockerfile
+    container_name: claudegate
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATA_DIR: /data
+      PORT: "8800"
+      HOST: 0.0.0.0
+      NODE_OPTIONS: --disable-warning=ExperimentalWarning
+    ports:
+      - "8800:8800"
+    volumes:
+      - claudegate-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8800/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  claudegate-data:

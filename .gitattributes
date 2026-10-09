@@ -1,0 +1,10 @@
+# 仓库内一律 LF，检出时也不做转换，避免 Windows 本地构建与 CI 不一致
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

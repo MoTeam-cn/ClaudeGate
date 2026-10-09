@@ -1,0 +1,21 @@
+node_modules/
+dist/
+data/
+.env
+.env.local
+*.log
+
+# 抓包脚本的产物
+probe-out/
+probe-raw/
+probe-*.ts
+
+# 浏览器工具
+.playwright-mcp/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

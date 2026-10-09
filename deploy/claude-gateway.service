@@ -1,0 +1,35 @@
+[Unit]
+Description=claude-gateway (Anthropic 号池网关)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claude-gw
+Group=claude-gw
+WorkingDirectory=/opt/claude-gateway
+EnvironmentFile=/opt/claude-gateway/.env
+# node:sqlite 是实验特性，屏蔽警告避免污染运行日志
+Environment=NODE_OPTIONS=--disable-warning=ExperimentalWarning
+ExecStart=/usr/bin/node /opt/claude-gateway/src/index.ts
+Restart=always
+RestartSec=3
+
+# 日志进 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-gateway
+
+# 内存与文件描述符：SSE 长连接多，nofile 给足
+LimitNOFILE=65535
+MemoryMax=1G
+
+# 最小权限
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/claude-gateway/data
+
+[Install]
+WantedBy=multi-user.target

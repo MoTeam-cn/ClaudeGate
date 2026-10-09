@@ -1,0 +1,31 @@
+{
+  "name": "claude-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Anthropic 稳定性网关：一键 OAuth 登录 + Claude Code 头守卫 + Anthropic/OpenAI 双协议转发",
+  "main": "dist/src/index.js",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "test": "node test/run-all.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start:dist": "node dist/src/index.js",
+    "test:smoke": "node test/smoke.ts",
+    "test:stego": "node test/stego.test.ts",
+    "test:stream": "node test/stream-probe.ts",
+    "test:pool": "node test/pool.test.ts",
+    "test:usage": "node test/usage.test.ts",
+    "test:proxy": "node test/proxy.test.ts",
+    "test:headers": "node test/headers.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {}
+}

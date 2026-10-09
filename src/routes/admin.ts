@@ -1,0 +1,69 @@
+import { signGatewayToken } from "../tokens.ts";
+import { sendJson, sendText } from "../http/respond.ts";
+import { lowerHeaders, headerValue } from "../utils.ts";
+import type { GatewayContext } from "../types.ts";
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+export function createAdminRoutes(ctx: GatewayContext) {
+  const { cfg, accounts, keys, logs } = ctx;
+  const startedAt = Date.now();
+
+  function requireAdmin(req: IncomingMessage, url: URL): boolean {
+    if (!cfg.adminToken) return true;
+    const h = lowerHeaders(req.headers);
+    const given = headerValue(h["x-admin-token"] as string | string[] | undefined) || url.searchParams.get("key") || "";
+    return given === cfg.adminToken;
+  }
+
+  /** 首页直接进面板；没配 ADMIN_TOKEN 时给出提示 */
+  function root(req: IncomingMessage, res: ServerResponse, url: URL): void {
+    if (!cfg.adminToken) {
+      sendText(
+        res,
+        200,
+        "claude-gateway 已启动。\n\n未设置 ADMIN_TOKEN，面板处于无鉴权状态，强烈建议在 .env 里设一个。\n面板地址：/panel\n"
+      );
+      return;
+    }
+    const key = url.searchParams.get("key") ?? "";
+    res.writeHead(302, { location: "/panel" + (key ? "?key=" + encodeURIComponent(key) : ""), "cache-control": "no-store" });
+    res.end();
+  }
+
+  function token(req: IncomingMessage, res: ServerResponse, url: URL): void {
+    if (!requireAdmin(req, url)) {
+      sendText(res, 401, "unauthorized");
+      return;
+    }
+    sendText(res, 200, signGatewayToken(cfg, "default") + "\n");
+  }
+
+  function health(req: IncomingMessage, res: ServerResponse): void {
+    const all = accounts.list();
+    const now = Date.now();
+    sendJson(res, 200, {
+      ok: true,
+      accounts: all.length,
+      activeAccounts: all.filter((a) => a.status === "active" && (!a.cooldownUntil || a.cooldownUntil * 1000 <= now)).length,
+      apiKeys: keys.list().length,
+      guardMode: cfg.guardMode,
+      stegoMode: cfg.stegoMode,
+      injectMissing: cfg.injectMissing,
+      upstream: cfg.upstreamBase,
+      uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+      stats: logs.stats(),
+      time: new Date().toISOString()
+    });
+  }
+
+  function logout(req: IncomingMessage, res: ServerResponse, url: URL): void {
+    if (!requireAdmin(req, url)) {
+      sendText(res, 401, "unauthorized");
+      return;
+    }
+    /* 号池化之后不存在「单一登录态」，登出请在面板里停用或删除账号 */
+    sendJson(res, 200, { ok: true, note: "号池模式下请到面板停用或删除账号" });
+  }
+
+  return { root, token, health, logout, requireAdmin };
+}

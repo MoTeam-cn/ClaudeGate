@@ -1,0 +1,16 @@
+node_modules
+dist
+data
+.git
+.github
+.vscode
+test
+docs
+probe-out
+probe-raw
+probe-*.ts
+.playwright-mcp
+*.log
+.env
+.env.*
+!.env.example
