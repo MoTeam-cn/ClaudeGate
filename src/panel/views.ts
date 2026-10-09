@@ -275,20 +275,73 @@ function actBatchDeleteAccounts(ids){
 }
 function openAddAccount(){
   var kind = h("select",{class:"el-input__inner"},[
+    h("option",{value:"oauth-login",text:"订阅 OAuth（授权登录，能查额度）"}),
     h("option",{value:"oauth",text:"订阅 OAuth（粘贴 refresh_token）"}),
     h("option",{value:"apikey",text:"Console API Key（sk-ant-...）"})
   ]);
   var secret = h("textarea",{class:"el-textarea__inner",placeholder:"粘贴 refresh_token 或 sk-ant-..."});
   var label = h("input",{class:"el-input__inner",placeholder:"留空自动命名"});
+
+  /* ---- 授权登录：① 拿链接去登录  ② 把 code 粘回来 ---- */
+  var started = null;
+  var linkBox = h("div",{});
+  var codeInput = h("input",{class:"el-input__inner",placeholder:"粘贴授权码（形如 xxx#yyy，整段粘进来即可）"});
+  var startBtn = h("button",{class:"el-button el-button--primary",type:"button",text:"① 获取授权链接"});
+  var authItem = h("div",{class:"el-form-item"},[
+    h("div",{class:"el-form-item__label",text:"授权登录"}),
+    startBtn,
+    linkBox,
+    h("div",{class:"el-form-item__label",style:{marginTop:"14px"},text:"② 粘贴授权码"}),
+    codeInput
+  ]);
+
+  /* 拿到链接后对话框**不关**：用户要切到新标签页登录，回来还得在这个框里粘 code */
+  function startAuth(){
+    return CG.api("oauth.start",{}).then(function(r){
+      started = r;
+      CG.clear(linkBox);
+      linkBox.appendChild(h("a",{class:"el-button",href:r.authorizeUrl,target:"_blank",rel:"noopener",
+        style:{marginTop:"10px",display:"inline-block"},text:"打开 Anthropic 授权页 ↗"}));
+      linkBox.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px",wordBreak:"break-all"},text:r.authorizeUrl}));
+      linkBox.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px"},
+        text:"按钮被拦就手动复制上面的链接。登录授权后页面会显示一段 code，复制它粘到下面。"}));
+      CG.toast("链接已生成，去新标签页登录","success");
+      return false;
+    });
+  }
+  startBtn.addEventListener("click", function(){ startAuth().catch(CG.showErr); });
+
+  var secretItem = h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"凭据"}), secret ]);
+  var labelItem = h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"备注名（可选）"}), label ]);
+  function syncKind(){
+    var isAuth = kind.value === "oauth-login";
+    authItem.style.display = isAuth ? "" : "none";
+    secretItem.style.display = isAuth ? "none" : "";
+    labelItem.style.display = isAuth ? "none" : "";
+  }
+  kind.addEventListener("change", syncKind);
+
   var body = h("div",{},[
     h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"类型"}), kind ]),
-    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"凭据"}), secret ]),
-    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"备注名（可选）"}), label ])
+    authItem, secretItem, labelItem
   ]);
+  syncKind();
+
   CG.dialog({
-    title:"添加账号", body:body, okText:"添加",
+    title:"添加账号", wide:true, body:body,
     onOk:function(){
-      return CG.api("account.create",{ kind:kind.value, secret:secret.value, label:label.value }).then(function(){
+      var k = kind.value;
+      if(k === "oauth-login"){
+        /* 还没拿链接就点主按钮：当成「获取授权链接」，别让人白点一下 */
+        if(!started) return startAuth();
+        var code = codeInput.value.trim();
+        if(!code){ CG.toast("先把授权码粘进来","warning"); return false; }
+        return CG.api("oauth.finish",{ state:started.state, code:code }).then(function(acc){
+          CG.toast("已添加「"+((acc && acc.label)||"账号")+"」","success");
+          CG.refresh();
+        });
+      }
+      return CG.api("account.create",{ kind:k, secret:secret.value, label:label.value }).then(function(){
         CG.toast("已添加","success"); CG.refresh();
       });
     }

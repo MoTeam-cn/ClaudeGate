@@ -41,10 +41,10 @@ npm run test:ja3       # 走代理时的 TLS 指纹回归
 | proxy | 27 | CONNECT 与 SOCKS5、认证、域名解析策略、故障 |
 | transport | 6（Node）/ 10（Bun） | 默认通道保头序、fetch 通道的已知代价 |
 | agent | 17 | node:sqlite（WAL / busy_timeout / 事务 / 主键冲突）与代理 Agent 猴补丁在当前运行时真的生效 |
-| panel | 57 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
+| panel | 93 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
 | gateway-contract | 37 | 对着官方网关兼容指南逐条验：/api/hello、21 个真实抓包头的逐位透传、beta 原样、官方点名的响应头 |
 | ja3 | 4（Node）/ 11（Bun） | 走 HTTP CONNECT 代理的 JA3 与真 Claude Code 逐位一致；通道选择规则 |
-| **合计** | **524**（Node）/ **531**（Bun） | |
+| **合计** | **569**（Node）/ **577**（Bun） | |
 
 测试全部监听 0 端口（随机端口），互不冲突，可以并行跑。
 

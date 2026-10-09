@@ -4,6 +4,7 @@ import { clampInt } from "../utils.ts";
 import { applyRuntimeSettings } from "../config.ts";
 import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
+import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -231,6 +232,36 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
     const body = (await readJson(req, cfg.maxBodyBytes)) as Record<string, unknown>;
 
     switch (action) {
+      /* 授权登录第一步：生成 PKCE、记下 pending、把链接给前端让用户去登录。
+         面板固定走 manual 回调（platform.claude.com/oauth/code/callback），
+         因为面板可能在内网、浏览器与网关不在一台机器上，localhost 回调够不着。 */
+      case "oauth.start": {
+        const started = startOAuth(ctx, { redirectUri: cfg.oauthManualRedirect, mode: "manual" });
+        ctx.log.info("panel: oauth start state=" + started.state.slice(0, 8));
+        sendJson(res, 200, { ok: true, data: { state: started.state, authorizeUrl: started.authorizeUrl, redirectUri: started.redirectUri, mode: started.mode } });
+        return;
+      }
+
+      /* 授权登录第二步：拿回调码换令牌并建号。授权页给的是 code 或 code#state，两种都认 */
+      case "oauth.finish": {
+        const state = str(body.state).trim();
+        const code = str(body.code).trim();
+        if (!state || !code) {
+          sendJson(res, 400, { error: { message: "缺少 state 或授权码", code: "invalid_input" } });
+          return;
+        }
+        try {
+          const done = await finishOAuth(ctx, state, code);
+          ctx.log.info("panel: oauth finish account=" + done.account.id + " email=" + String(done.email ?? "-"));
+          sendJson(res, 200, { ok: true, data: publicAccount(done.account) });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          ctx.log.warn("panel: oauth finish failed: " + msg);
+          sendJson(res, 400, { error: { message: msg, code: "oauth_failed" } });
+        }
+        return;
+      }
+
       case "account.create": {
         const kind = str(body.kind, "apikey") === "oauth" ? "oauth" : "apikey";
         const secret = str(body.secret).trim();

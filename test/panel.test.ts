@@ -197,6 +197,52 @@ try {
   eq("删除 200", removed.status, 200);
 
   const unknown = await request(port, "/panel/api?action=no.such&key=panel-admin");
+  /* ---- OAuth 授权登录：面板里那条「获取链接 -> 粘贴 code」的路 ---- */
+  const start = await request(port, "/panel/api?action=oauth.start&key=panel-admin", { body: {} });
+  eq("oauth.start 返回 200", start.status, 200);
+  const started = (start.json as { data?: { state?: string; authorizeUrl?: string; redirectUri?: string; mode?: string } }).data;
+  ok("给了 state", !!started?.state && started.state.length >= 16, String(started?.state));
+  ok("给了授权链接", !!started?.authorizeUrl && started.authorizeUrl.startsWith("https://"), String(started?.authorizeUrl).slice(0, 60));
+  /* 面板固定走 manual 回调：内网部署时浏览器与网关不在一台机器上，localhost 够不着 */
+  eq("redirect_uri 是官方手动回调", started?.redirectUri, "https://platform.claude.com/oauth/code/callback");
+  eq("模式是 manual", started?.mode, "manual");
+  const au = new URL(String(started?.authorizeUrl));
+  eq("链接里的 redirect_uri 与返回一致", au.searchParams.get("redirect_uri"), "https://platform.claude.com/oauth/code/callback");
+  eq("带 PKCE challenge 方法", au.searchParams.get("code_challenge_method"), "S256");
+  ok("带 code_challenge", (au.searchParams.get("code_challenge") ?? "").length > 20);
+  eq("state 与返回一致", au.searchParams.get("state"), started?.state);
+  eq("带 client_id", au.searchParams.get("client_id"), gw.cfg.oauthClientId);
+  eq("response_type=code", au.searchParams.get("response_type"), "code");
+  /* 订阅模式必须带 user:inference，否则拿不到额度 */
+  ok("scope 含 user:inference", (au.searchParams.get("scope") ?? "").includes("user:inference"), au.searchParams.get("scope") ?? "");
+
+  /* finish 的三条早退路径都不需要联网，可以离线验 */
+  const noState = await request(port, "/panel/api?action=oauth.finish&key=panel-admin", { body: { state: "deadbeef", code: "x" } });
+  eq("未知 state 被拒", noState.status, 400);
+  ok("提示要重新获取链接", JSON.stringify(noState.json).includes("授权会话已过期"), JSON.stringify(noState.json).slice(0, 120));
+
+  const s2 = await request(port, "/panel/api?action=oauth.start&key=panel-admin", { body: {} });
+  const st2 = (s2.json as { data?: { state?: string } }).data?.state ?? "";
+  const emptyCode = await request(port, "/panel/api?action=oauth.finish&key=panel-admin", { body: { state: st2, code: "   " } });
+  /* 空白串在 API 层就被挡掉，消息说明缺了什么 */
+  eq("空授权码被拒", emptyCode.status, 400);
+  ok("提示缺 state 或授权码", JSON.stringify(emptyCode.json).includes("缺少 state 或授权码"), JSON.stringify(emptyCode.json).slice(0, 120));
+
+  const s3 = await request(port, "/panel/api?action=oauth.start&key=panel-admin", { body: {} });
+  const st3 = (s3.json as { data?: { state?: string } }).data?.state ?? "";
+  const mismatch = await request(port, "/panel/api?action=oauth.finish&key=panel-admin", { body: { state: st3, code: "somecode#totally-different-state" } });
+  eq("内联 state 不匹配被拒", mismatch.status, 400);
+  ok("提示 state 不匹配", JSON.stringify(mismatch.json).includes("state 不匹配"), JSON.stringify(mismatch.json).slice(0, 120));
+
+  /* 一次性的：上一步已经把这个 state 消费掉了 */
+  const reuse = await request(port, "/panel/api?action=oauth.finish&key=panel-admin", { body: { state: st3, code: "somecode" } });
+  eq("state 是一次性的，重放被拒", reuse.status, 400);
+
+  /* /login 页面是同一份逻辑的 HTML 版，重构后不能坏 */
+  const loginPage = await request(port, "/login", { headers: { host: "10.0.0.5:8899" } });
+  eq("/login 在内网 host 下返回页面", loginPage.status, 200);
+  ok("/login 页面有 code 输入框", loginPage.text.includes('name="code"'));
+  ok("/login 页面有新标签页按钮", loginPage.text.includes('target="_blank"'));
   eq("未知 action 400", unknown.status, 400);
 
   await gw.close();

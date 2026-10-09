@@ -1,11 +1,4 @@
-import crypto from "node:crypto";
-import {
-  buildAuthorizeUrl,
-  exchangeCode,
-  fetchProfile,
-  credentialFromToken,
-  createApiKey
-} from "../oauth.ts";
+import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import { signGatewayToken } from "../tokens.ts";
 import { sendHtml, sendJson } from "../http/respond.ts";
 import { page, envSnippet, htmlEsc } from "../http/pages.ts";
@@ -20,42 +13,18 @@ function isLoopbackHost(hostHeader: string | undefined): boolean {
     h.startsWith("[::1]") || h.startsWith("0.0.0.0");
 }
 
-/** 从 profile 里尽量挖出邮箱，挖不到就返回 null */
-function emailFromProfile(prof: unknown): string | null {
-  if (!prof || typeof prof !== "object") return null;
-  const o = prof as Record<string, unknown>;
-  for (const k of ["email", "email_address", "account_email"]) {
-    const v = o[k];
-    if (typeof v === "string" && v.includes("@")) return v;
-  }
-  for (const k of ["account", "organization", "user"]) {
-    const nested = emailFromProfile(o[k]);
-    if (nested) return nested;
-  }
-  return null;
-}
-
 export function createAuthRoutes(ctx: GatewayContext) {
   const { cfg, store, log, accounts } = ctx;
 
   function login(req: IncomingMessage, res: ServerResponse, url: URL): void {
     const loopback = isLoopbackHost(req.headers.host) || url.searchParams.get("mode") === "loopback";
-    const state = randHex(16);
-    const codeVerifier = b64url(crypto.randomBytes(32));
-    const codeChallenge = b64url(crypto.createHash("sha256").update(codeVerifier).digest());
-
     const redirectUri = loopback
       ? "http://localhost:" + String(req.socket.localPort ?? cfg.port) + "/callback"
       : cfg.oauthManualRedirect;
 
-    store.putPending(state, {
-      codeVerifier,
-      redirectUri,
-      createdAt: Date.now(),
-      mode: loopback ? "auto" : "manual"
-    });
-
-    const authUrl = buildAuthorizeUrl(cfg, { redirectUri, codeChallenge, state });
+    const started = startOAuth(ctx, { redirectUri, mode: loopback ? "auto" : "manual" });
+    const state = started.state;
+    const authUrl = started.authorizeUrl;
 
     if (loopback) {
       res.writeHead(302, { location: authUrl, "cache-control": "no-store" });
@@ -80,60 +49,13 @@ export function createAuthRoutes(ctx: GatewayContext) {
   }
 
   async function complete(res: ServerResponse, state: string, rawCode: string): Promise<void> {
-    const pend = store.takePending(state);
-    if (!pend) {
-      sendHtml(res, 400, page("登录失败", "<h1 class=\"bad\">授权会话已过期</h1><p class=\"sub\">请重新发起 /login。</p>"));
-      return;
-    }
-
-    let code = String(rawCode ?? "").trim();
-    let inlineState: string | null = null;
-    const hashAt = code.indexOf("#");
-    if (hashAt !== -1) {
-      inlineState = code.slice(hashAt + 1).trim();
-      code = code.slice(0, hashAt).trim();
-    }
-    if (!code) {
-      sendHtml(res, 400, page("登录失败", "<h1 class=\"bad\">授权码为空</h1>"));
-      return;
-    }
-    if (inlineState && inlineState !== state) {
-      sendHtml(res, 400, page("登录失败", "<h1 class=\"bad\">state 不匹配</h1>"));
-      return;
-    }
-
     try {
-      const tok: TokenResponse = await exchangeCode(cfg, {
-        code,
-        state,
-        codeVerifier: pend.codeVerifier,
-        redirectUri: pend.redirectUri
-      });
-
-      const cred = credentialFromToken(cfg, tok);
-      const prof = await fetchProfile(cfg, tok.access_token);
-      const email = emailFromProfile(prof);
-
-      let apiKey: string | null = null;
-      if (cfg.oauthMode === "console") {
-        apiKey = await createApiKey(cfg, tok.access_token);
-      }
-
-      const account = accounts.create({
-        label: email ?? ("账号 " + (accounts.list().length + 1)),
-        kind: apiKey ? "apikey" : "oauth",
-        accessToken: cred.access_token ?? null,
-        refreshToken: cred.refresh_token ?? null,
-        apiKey,
-        expiresAt: cred.expires_at ?? null,
-        scope: cred.scope ?? null,
-        clientId: cred.client_id ?? null,
-        mode: cred.mode ?? null,
-        email
-      });
+      /* 解析 code#state、换令牌、建号都在 oauth-flow 里，面板走的是同一份逻辑 */
+      const done = await finishOAuth(ctx, state, rawCode);
+      const account = done.account;
 
       const token = signGatewayToken(cfg, "default");
-      log.info("login success, account=" + account.id + " scopes=" + String(cred.scope ?? ""));
+      log.info("login success, account=" + account.id + " scopes=" + String(done.scope ?? ""));
 
       let inner = "<h1 class=\"ok\">登录成功</h1><div class=\"sub\">账号 " + htmlEsc(account.label) + " 已进入号池。</div>";
       inner += "<div class=\"card\"><h2>Claude Code 接入（复制即用）</h2><pre>" +
