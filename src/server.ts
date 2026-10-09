@@ -20,6 +20,9 @@ import { setRequestMeta, setTracker } from "./http/context.ts";
 import { newRequestId } from "./ids.ts";
 
 import { createAdminRoutes } from "./routes/admin.ts";
+import { createAdminKey } from "./admin-key.ts";
+import { loadEnvFile } from "./env-file.ts";
+import { resolveEnvFilePath } from "./config.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
 import { createAnthropicRoutes } from "./routes/anthropic.ts";
 import { createOpenaiRoutes } from "./routes/openai.ts";
@@ -37,7 +40,7 @@ import type {
   RequestTracker,
   Store
 } from "./types.ts";
-import type { AccountStore, ApiKeyStore, LogStore, SettingsStore, Scheduler, CredentialManager, QuotaGuard, Database } from "./types.ts";
+import type { AccountStore, AdminKeyHandle, ApiKeyStore, LogStore, SettingsStore, Scheduler, CredentialManager, QuotaGuard, Database } from "./types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -54,6 +57,7 @@ export interface Gateway {
   readonly scheduler: Scheduler;
   readonly credentials: CredentialManager;
   readonly quota: QuotaGuard;
+  readonly adminKey: AdminKeyHandle;
   readonly warnings: string[];
   readonly routes: { public: PublicRoute[]; api: ApiRoute[] };
   listen(port?: number, host?: string): Promise<AddressInfo>;
@@ -90,7 +94,13 @@ function shouldLogRequest(pathname: string): boolean {
 }
 
 export function createGateway(env: Record<string, string | undefined> = process.env): Gateway {
+  /* 先读工作目录的 .env（真实环境变量优先，.env 只补空缺），再读配置。
+     面板登录密钥的首次派发要写回这里，所以必须真的读它 —— 之前只有 .env.example，没有加载器 */
+  const envFile = resolveEnvFilePath(env);
+  const envLoaded = envFile ? loadEnvFile(envFile, env) : { path: "", exists: false, applied: 0, seen: 0 };
+
   const cfg = loadConfig(env);
+  cfg.envFile = envFile;
   const store = createStore(cfg);
 
   const db = openDatabase(cfg.dataDir);
@@ -122,6 +132,21 @@ export function createGateway(env: Record<string, string | undefined> = process.
       logs.runtime("error", "app", msg, extra);
     }
   };
+
+  /* 面板管理员密钥：首次启动自动派发，登录密钥单向派生自主密钥。
+     明文只在首次派发时交给 index.ts 打印一次，这里不做任何输出 */
+  const adminKey = createAdminKey({
+    dataDir: cfg.dataDir,
+    adminToken: cfg.adminToken,
+    adminSecret: cfg.adminSecret,
+    envFile: cfg.envFile,
+    /* 用户显式指了 CG_ENV_FILE 就照写，不受「只在默认数据目录才创建 .env」那条守卫限制 */
+    envFileExplicit: env.CG_ENV_FILE !== undefined && String(env.CG_ENV_FILE).trim() !== "",
+    log
+  });
+  if (envLoaded.exists && envLoaded.applied > 0) {
+    log.debug("env: 从 " + envLoaded.path + " 补进 " + envLoaded.applied + " 项");
+  }
 
   /* 老版本的单凭据文件自动迁移进号池，避免升级后凭空少一个号 */
   if (accounts.list().length === 0 && store.credential) {
@@ -159,7 +184,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
   cfg.agent = createAgent(cfg);
   cfg.agentHttp = createHttpAgent(cfg);
 
-  const ctx: GatewayContext = { cfg, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota };
+  const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota };
 
   const admin = createAdminRoutes(ctx);
   const auth = createAuthRoutes(ctx);
@@ -463,6 +488,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
     scheduler,
     credentials,
     quota,
+    adminKey,
     warnings: configWarnings(cfg),
     routes: { public: publicRoutes, api: apiRoutes },
 

@@ -8,24 +8,18 @@ export function createAdminRoutes(ctx: GatewayContext) {
   const { cfg, accounts, keys, logs } = ctx;
   const startedAt = Date.now();
 
+  /**
+   * 面板鉴权。密钥由 admin-key 模块管：首次启动自动派发，面板里可重置。
+   * 显式设了 ADMIN_TOKEN 时它完全接管（逃生口）。
+   */
   function requireAdmin(req: IncomingMessage, url: URL): boolean {
-    if (!cfg.adminToken) return true;
     const h = lowerHeaders(req.headers);
     const given = headerValue(h["x-admin-token"] as string | string[] | undefined) || url.searchParams.get("key") || "";
-    return given === cfg.adminToken;
+    return ctx.adminKey.verify(given);
   }
 
-  /** 首页直接进面板；没配 ADMIN_TOKEN 时给出提示 */
+  /** 首页直接进面板。面板自己会问登录密钥 */
   function root(req: IncomingMessage, res: ServerResponse, url: URL): void {
-    if (!cfg.adminToken) {
-      sendText(
-        res,
-        200,
-        "claude-gateway 已启动。\n\n未设置 ADMIN_TOKEN，面板处于无鉴权状态，强烈建议在 .env 里设一个。\n面板地址：/panel\n"
-      );
-      return;
-    }
-    /* 不再把令牌拼进 URL：面板自己会问 */
     res.writeHead(302, { location: "/panel", "cache-control": "no-store" });
     res.end();
   }

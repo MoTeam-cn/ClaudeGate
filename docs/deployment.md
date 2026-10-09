@@ -41,7 +41,6 @@ docker pull ghcr.io/moteam-cn/claudegate:latest
 docker run -d --name claudegate --restart unless-stopped \
   -p 8800:8800 \
   -v claudegate-data:/data \
-  -e ADMIN_TOKEN=<足够长的随机值> \
   -e PUBLIC_URL=https://gw.example.com \
   -e UPSTREAM_PROXY=socks5h://user:pass@proxy.example.com:1080 \
   ghcr.io/moteam-cn/claudegate:latest
@@ -50,7 +49,7 @@ docker run -d --name claudegate --restart unless-stopped \
 或者用仓库里的 compose：
 
 ```bash
-cp .env.example .env      # 改 ADMIN_TOKEN 等
+cp .env.example .env      # 改 PUBLIC_URL 等
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
@@ -135,7 +134,8 @@ docker run --rm -v claudegate-data:/data -v $(pwd):/backup alpine \
 
 ## 上生产前的检查单
 
-- [ ] `ADMIN_TOKEN` 是足够长的随机值，且没有提交进仓库
+- [ ] `data/admin.json` 与 `.env` 都在备份范围里（前者存主密钥，删了要重新派发）
+- [ ] 首次启动日志里的面板登录密钥已经存到密码管理器，日志本身没有外泄
 - [ ] `PUBLIC_URL` 是真实对外地址
 - [ ] TLS 已经由反代终止，SSE 缓冲已关
 - [ ] 号池里至少两个可用账号（只有一个的话故障转移没意义）

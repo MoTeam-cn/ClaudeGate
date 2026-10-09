@@ -10,6 +10,19 @@ const REQ_ID_MODES: readonly ReqIdMode[] = ["error", "always", "off"];
 type Env = Record<string, string | undefined>;
 
 /**
+ * 决定读哪个 .env。
+ *   CG_ENV_FILE 未设 -> 工作目录的 .env
+ *   CG_ENV_FILE 为空串 -> 完全不读也不写（测试用这个，免得往仓库里写 .env）
+ *   CG_ENV_FILE 有值 -> 用它
+ */
+export function resolveEnvFilePath(env: Env): string {
+  const raw = env.CG_ENV_FILE;
+  if (raw !== undefined && String(raw).trim() === "") return "";
+  if (raw !== undefined) return path.resolve(String(raw).trim());
+  return path.resolve(process.cwd(), ".env");
+}
+
+/**
  * 出站 TLS 套件列表。
  * 默认按 BoringSSL（真 Claude Code 用的那份）发，缩掉 Node 默认多出来的 35 个老套件 ——
  * 套件列表是 TLS 指纹里权重最大的一段。
@@ -102,6 +115,9 @@ export function loadConfig(env: Env): Config {
 
     trustProxy: bool(env.TRUST_PROXY, true),
     adminToken: env.ADMIN_TOKEN ?? "",
+    adminSecret: env.ADMIN_SECRET ?? "",
+    /* 由 createGateway 用 resolveEnvFilePath 覆盖；这里先给个默认 */
+    envFile: "",
     tokenTtlDays: num(env.TOKEN_TTL_DAYS, 365),
 
     oauthMode,

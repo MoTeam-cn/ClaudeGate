@@ -28,7 +28,8 @@
     "test:panel": "node test/panel.test.ts",
     "test:contract": "node test/gateway-contract.test.ts",
     "test:ja3": "node test/ja3.test.ts",
-    "test:oauth": "node test/oauth.test.ts"
+    "test:oauth": "node test/oauth.test.ts",
+    "test:adminkey": "node test/admin-key.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

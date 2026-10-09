@@ -11,9 +11,16 @@ import { VIEWS_JS } from "./views.ts";
  * 视图（各页）、外壳（这里）。换皮只动 token，加组件只动组件，加页只动视图。
  */
 export function panelHtml(ctx: GatewayContext): string {
-  const hasAdmin = !!ctx.cfg.adminToken;
-  const authNote = hasAdmin ? "已启用 ADMIN_TOKEN 鉴权" : "未设置 ADMIN_TOKEN，无鉴权";
-  /* 令牌由前端弹窗索取并存 localStorage，不进 URL */
+  /* 登录密钥由 admin-key 模块派发与校验，永远启用；前端弹窗索取并存 localStorage，不进 URL。
+     adminKey 缺省时（比如只拿 cfg 造 ctx 的单测）退化成一句静态说明，不要抛错 */
+  const ak = ctx.adminKey ? ctx.adminKey.info() : null;
+  const authNote = !ak
+    ? "已启用登录密钥"
+    : ak.envOverride
+      ? "由 ADMIN_TOKEN 接管"
+      : ak.mode === "custom"
+        ? "已启用登录密钥（面板里重置过）"
+        : "已启用登录密钥";
   return [
     "<!doctype html>",
     '<html lang="zh-CN" data-theme="dark">',

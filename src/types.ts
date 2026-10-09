@@ -74,6 +74,10 @@ export interface Config {
 
   trustProxy: boolean;
   adminToken: string;
+  /** 主密钥；首次启动自动生成并镜像进 .env */
+  adminSecret: string;
+  /** .env 路径；空串表示不读也不镜像 */
+  envFile: string;
   tokenTtlDays: number;
 
   oauthMode: OAuthMode;
@@ -154,8 +158,26 @@ export interface Store {
   refreshInFlight: Promise<Credential | null> | null;
 }
 
+/** 面板管理员密钥的句柄。结构写在这里，免得 types 反向依赖 admin-key */
+export interface AdminKeyHandle {
+  info(): {
+    mode: "derived" | "custom" | "env";
+    envOverride: boolean;
+    createdAt: number;
+    rotatedAt: number;
+    masterFingerprint: string;
+    keyFile: string;
+    envFile: string;
+    envMirrored: boolean;
+  };
+  verify(presented: string): boolean;
+  reset(custom?: string): string;
+  readonly announce: string | null;
+}
+
 export interface GatewayContext {
   cfg: Config;
+  adminKey: AdminKeyHandle;
   log: Logger;
   store: Store;
   db: Database;

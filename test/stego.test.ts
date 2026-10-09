@@ -167,6 +167,7 @@ const gw = createGateway({
   HOST: "127.0.0.1",
   DATA_DIR: newDir("main"),
   SECRET: "stego-secret",
+  ADMIN_TOKEN: "stego-admin",
   UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
   GUARD_MODE: "strict",
   STEGO_MODE: "block",
@@ -183,7 +184,7 @@ gw.accounts.create({
   scope: "user:inference"
 });
 
-const TOKEN = (await getText(addr.port, "/token")).text.trim();
+const TOKEN = (await getText(addr.port, "/token?key=stego-admin")).text.trim();
 const CC: Record<string, string> = {
   authorization: "Bearer " + TOKEN,
   "content-type": "application/json",

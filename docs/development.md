@@ -27,6 +27,7 @@ npm run test:panel     # 面板：渲染产物、脚本可解析、前后端 act
 npm run test:contract  # 官方网关兼容指南的逐条对照
 npm run test:ja3       # 走代理时的 TLS 指纹回归
 npm run test:oauth     # 授权登录与加号后自动查额度
+npm run test:adminkey  # 面板登录密钥的派发与重置
 ```
 
 ## 测试构成
@@ -42,11 +43,12 @@ npm run test:oauth     # 授权登录与加号后自动查额度
 | proxy | 27 | CONNECT 与 SOCKS5、认证、域名解析策略、故障 |
 | transport | 6（Node）/ 10（Bun） | 默认通道保头序、fetch 通道的已知代价 |
 | agent | 17 | node:sqlite（WAL / busy_timeout / 事务 / 主键冲突）与代理 Agent 猴补丁在当前运行时真的生效 |
-| panel | 93 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
+| panel | 96 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
 | gateway-contract | 37 | 对着官方网关兼容指南逐条验：/api/hello、21 个真实抓包头的逐位透传、beta 原样、官方点名的响应头 |
 | ja3 | 4（Node）/ 11（Bun） | 走 HTTP CONNECT 代理的 JA3 与真 Claude Code 逐位一致；通道选择规则 |
 | oauth | 25 | 授权两段式全链路（mock 令牌/profile/用量端点）：自动查额度并落库、查询失败不影响建号、rejected 封印、console 模式不查且兑换失败要报错 |
-| **合计** | **594**（Node）/ **602**（Bun） | |
+| admin-key | 86 | 登录密钥的派发/单向派生/scrypt 存储/重置/接管；.env 读写；端到端 HTTP 鉴权与重置 |
+| **合计** | **676**（Node）/ **684**（Bun） | |
 
 测试全部监听 0 端口（随机端口），互不冲突，可以并行跑。
 

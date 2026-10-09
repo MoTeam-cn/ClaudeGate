@@ -62,6 +62,8 @@ async function main(): Promise<void> {
     HOST: "127.0.0.1",
     DATA_DIR: newDir("main"),
     SECRET: "test-secret",
+    /* 面板鉴权现在是常开的；测试显式给一个，别依赖自动派发的密钥 */
+    ADMIN_TOKEN: "smoke-admin",
     UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
     GUARD_MODE: "strict",
     INJECT_MISSING: "false",
@@ -83,7 +85,7 @@ async function main(): Promise<void> {
     mode: "claude_ai"
   });
 
-  const TOKEN = (await getText(port, "/token")).text.trim();
+  const TOKEN = (await getText(port, "/token?key=smoke-admin")).text.trim();
 
   const CC: Record<string, string> = {
     "content-type": "application/json",
@@ -304,6 +306,7 @@ async function main(): Promise<void> {
     HOST: "127.0.0.1",
     DATA_DIR: newDir("lenient"),
     SECRET: "secret-2",
+    ADMIN_TOKEN: "smoke-admin",
     UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
     GUARD_MODE: "lenient",
     INJECT_MISSING: "true",
@@ -320,7 +323,7 @@ async function main(): Promise<void> {
     scope: "user:inference"
   });
 
-  const t2 = (await getText(addr2.port, "/token")).text.trim();
+  const t2 = (await getText(addr2.port, "/token?key=smoke-admin")).text.trim();
   const inj = await request(addr2.port, "/v1/messages", {
     headers: { authorization: "Bearer " + t2 },
     body: { model: "sonnet", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }

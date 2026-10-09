@@ -156,6 +156,11 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         sendJson(res, 200, { ok: true, data: overview() });
         return;
 
+      /* 面板登录密钥的当前状态。只读，不含任何密钥材料，只有模式与时间 */
+      case "admin.keyinfo":
+        sendJson(res, 200, { ok: true, data: ctx.adminKey.info() });
+        return;
+
       case "accounts":
         sendJson(res, 200, { ok: true, data: accounts.list().map(publicAccount) });
         return;
@@ -256,6 +261,20 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
     const body = (await readJson(req, cfg.maxBodyBytes)) as Record<string, unknown>;
 
     switch (action) {
+      /* 重置登录密钥。传 key 用自定义值，不传就随机生成。
+         明文只在这一次响应里回去，之后只留 scrypt 哈希 —— 不再进日志 */
+      case "admin.keyreset": {
+        const custom = str(body.key).trim();
+        try {
+          const key = ctx.adminKey.reset(custom || undefined);
+          ctx.log.warn("panel: 登录密钥已重置（" + (custom ? "自定义" : "随机生成") + "）");
+          sendJson(res, 200, { ok: true, data: { key, info: ctx.adminKey.info() } });
+        } catch (e) {
+          sendJson(res, 400, { error: { message: e instanceof Error ? e.message : String(e), code: "reset_failed" } });
+        }
+        return;
+      }
+
       /* 授权登录第一步：生成 PKCE、记下 pending、把链接给前端让用户去登录。
          面板固定走 manual 回调（platform.claude.com/oauth/code/callback），
          因为面板可能在内网、浏览器与网关不在一台机器上，localhost 回调够不着。 */

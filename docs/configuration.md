@@ -25,7 +25,9 @@
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `SECRET` | 空 | 网关令牌签名密钥；留空则首次启动生成到 `data/secret` |
-| `ADMIN_TOKEN` | 无 | **必填**，面板与 `/token` 的鉴权令牌 |
+| `ADMIN_TOKEN` | 空 | **逃生口**。留空时首次启动自动派发面板登录密钥并在日志里打印一次；显式设了就完全接管，不派发也不打印 |
+| `ADMIN_SECRET` | 空 | 主密钥。留空则首次启动生成，写进 `data/admin.json` 并镜像到 `.env`。改它会让登录密钥重新派生并再打印一次 |
+| `CG_ENV_FILE` | 工作目录的 `.env` | 读哪个 .env。设成空字符串表示既不读也不写（测试用） |
 | `TOKEN_TTL_DAYS` | `365` | 自签网关令牌有效期 |
 
 ## 上游
@@ -99,6 +101,7 @@ data/
   gateway.db         SQLite：账号、API Key、请求日志、运行日志、设置
   gateway.db-wal     预写日志（WAL 模式）
   secret             自动生成的签名密钥（如果 .env 里没给 SECRET）
+  admin.json         面板登录密钥的 scrypt 哈希与主密钥（0600；删掉它会重新派发）
 ```
 
 备份直接拷整个目录即可。

@@ -20,19 +20,20 @@
 
 ```bash
 node -v                 # 需要 22.6+；node:sqlite 在 23.4+ 免标志
-cp .env.example .env    # 至少改 ADMIN_TOKEN 与 PUBLIC_URL
+cp .env.example .env    # 至少改 PUBLIC_URL；面板登录密钥首次启动自动派发
 npm start
 ```
 
-打开 `http://127.0.0.1:8080/panel` 就是面板 —— 首次进入会弹窗问管理员令牌，填了存在浏览器本地，之后免填。
+打开 `http://127.0.0.1:8080/panel` 就是面板。首次启动会在日志里打印一次面板登录密钥（`cgk_` 开头），
+首次进入面板时填它，存在浏览器本地，之后免填。忘了就在面板「设置」里重置。
 
 Docker：
 
 ```bash
 docker run -d --name claudegate --restart unless-stopped \
   -p 8800:8800 -v claudegate-data:/data \
-  -e ADMIN_TOKEN=<足够长的随机值> \
   ghcr.io/moteam-cn/claudegate:latest
+# 首次启动看日志拿面板登录密钥；主密钥存在 /data/admin.json，跟着卷一起持久化
 ```
 
 ## 文档

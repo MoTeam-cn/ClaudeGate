@@ -50,9 +50,16 @@ ok("有消息容器", html.includes('id="messages"'));
 ok("六个菜单项", (html.match(/data-route="/g) ?? []).length === 6, String((html.match(/data-route="/g) ?? []).length));
 ok("令牌没写死在页面里", !html.includes("test-admin"));
 
+/* ctx 不完整（只给 cfg）时不能崩，退化成静态说明 */
 const html2 = panelHtml({ cfg: { adminToken: "" } } as unknown as GatewayContext);
-ok("未设令牌时提示无鉴权", html2.includes("无鉴权"));
-ok("设了令牌时提示已鉴权", html.includes("已启用 ADMIN_TOKEN"));
+ok("ctx 缺 adminKey 也不崩", html2.includes("登录密钥"));
+
+/* 三种密钥来源各自的说明文字 */
+const noteOf = (info: Record<string, unknown>): string =>
+  panelHtml({ cfg: { adminToken: "" }, adminKey: { info: () => info } } as unknown as GatewayContext);
+ok("派生模式说明", noteOf({ mode: "derived", envOverride: false }).includes("已启用登录密钥"));
+ok("重置过说明", noteOf({ mode: "custom", envOverride: false }).includes("重置过"));
+ok("ADMIN_TOKEN 接管说明", noteOf({ mode: "env", envOverride: true }).includes("ADMIN_TOKEN 接管"));
 
 /* 令牌的来路与去路：不进 URL、走头、存 localStorage、失效重问 */
 const authSrc = src("client.ts");
@@ -95,6 +102,7 @@ for (const m of apiSrc.matchAll(/case\s+"([a-z][a-z0-9.]*)"/g)) handled.add(m[1]
 ok("前端确实调了接口", called.size >= 10, "数量=" + called.size);
 const missing = [...called].filter((a) => !handled.has(a));
 eq("前端调用的 action 后端都处理", missing.join(","), "");
+ok("密钥接口走全小写 action 名（与既有约定一致）", called.has("admin.keyinfo") && called.has("admin.keyreset"), [...called].filter((a) => a.startsWith("admin.")).join(","));
 const orphan = [...handled].filter((a) => !called.has(a));
 console.log("    （后端有、前端暂未调用: " + (orphan.join(", ") || "无") + "）");
 
