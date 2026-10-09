@@ -59,6 +59,25 @@ async function postJson(
   return { status: res.status, ok: res.ok, data, text: res.text };
 }
 
+/**
+ * 把令牌端点的失败讲清楚。
+ * 403 forbidden / "Request not allowed" 不是授权码的问题 —— 实测把请求换成
+ * GET、空 body、form 编码、完整浏览器头、甚至真 Claude Code 逐字的头，一律 403。
+ * 这是出口 IP 在 Cloudflare 那边被判了，继续重试只会让封锁范围变大。
+ */
+function tokenError(action: string, status: number, text: string): string {
+  const body = text.slice(0, 300);
+  if (status === 403) {
+    return action + "失败：HTTP 403 " + body + "\n" +
+      "这是出口 IP 被挡了，不是授权码的问题。请求形态已被排除：换 GET、空 body、" +
+      "浏览器头、Claude Code 逐字的头都是同样的 403。\n" +
+      "不要再重试 —— 实测重复请求会让封锁从单个路径扩大到整个 /oauth/*。\n" +
+      "要查就换成被信任的出口（浏览器能打开 claude.ai 的那条路径），或改用" +
+      "「粘贴 refresh_token」的方式加号。";
+  }
+  return action + "失败：HTTP " + status + " " + body;
+}
+
 export async function exchangeCode(cfg: Config, opts: ExchangeOptions): Promise<TokenResponse> {
   const body: Record<string, unknown> = {
     grant_type: "authorization_code",
@@ -68,9 +87,11 @@ export async function exchangeCode(cfg: Config, opts: ExchangeOptions): Promise<
     code_verifier: opts.codeVerifier,
     state: opts.state
   };
-  const r = await postJson(cfg, cfg.oauthTokenUrl, body, { "user-agent": CC_UA });
+  /* 头跟真 Claude Code 逐字一致：只发 Content-Type，不额外加 UA。
+     对照过二进制里那句 Et.post(TOKEN_URL, E, {headers:{"Content-Type":"application/json"}}) */
+  const r = await postJson(cfg, cfg.oauthTokenUrl, body);
   if (!r.ok || !r.data || typeof r.data.access_token !== "string") {
-    throw new Error("token exchange failed: HTTP " + r.status + " " + r.text.slice(0, 300));
+    throw new Error(tokenError("兑换授权码", r.status, r.text));
   }
   return r.data as unknown as TokenResponse;
 }
@@ -86,9 +107,9 @@ export async function refreshUpstream(cfg: Config, cred: Credential): Promise<To
     client_id: cred.client_id ?? cfg.oauthClientId,
     scope
   };
-  const r = await postJson(cfg, cfg.oauthTokenUrl, body, { "user-agent": CC_UA });
+  const r = await postJson(cfg, cfg.oauthTokenUrl, body);
   if (!r.ok || !r.data || typeof r.data.access_token !== "string") {
-    throw new Error("refresh failed: HTTP " + r.status + " " + r.text.slice(0, 300));
+    throw new Error(tokenError("刷新令牌", r.status, r.text));
   }
   return r.data as unknown as TokenResponse;
 }
