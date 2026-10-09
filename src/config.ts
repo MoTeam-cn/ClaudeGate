@@ -104,7 +104,9 @@ export function loadConfig(env: Env): Config {
     shutdownGraceMs: num(env.SHUTDOWN_GRACE_MS, 5000),
 
     guardMode,
-    guardRequire: String(env.GUARD_REQUIRE ?? "user-agent,x-app,anthropic-version,x-claude-code-session-id")
+    /* 只要求「表明自己是 Claude Code」的两个头。
+       anthropic-version / x-claude-code-session-id 由网关自己补 —— 见 guard.ts 里的说明 */
+      guardRequire: String(env.GUARD_REQUIRE ?? "user-agent,x-app")
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),

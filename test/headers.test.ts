@@ -230,6 +230,53 @@ console.log("\n=== E. 凭据头原地改名（Console 号） ===");
   eq("未发 connection 时由 Node 补在末尾", gotOrder[expectOrder.length], "connection");
 }
 
+
+console.log("\n=== F. 守卫只要求身份头，指纹头由网关自己补 ===");
+{
+  /* 背景：默认 GUARD_REQUIRE 曾经是四个头，连 x-claude-code-session-id 都要求客户端给。
+     但那个头是网关从 Key 种子派生的（为了跨请求稳定），让客户端提供只会被塞随机值。
+     所以现在只要求 user-agent + x-app，其余由网关注入。 */
+
+  /* 裸请求：只有 Authorization */
+  const bare = await request(port, "/v1/models", { headers: { authorization: "Bearer " + gwToken } });
+  eq("裸请求被守卫拒绝", bare.status, 403);
+  ok("消息里点明了缺哪两个头",
+    bare.text.includes("user-agent") && bare.text.includes("x-app"), bare.text.slice(0, 220));
+  ok("消息里给了能直接照抄的修法",
+    bare.text.includes("x-app: cli") && bare.text.includes("passthrough"), bare.text.slice(0, 420));
+  ok("不再要求客户端提供 session-id",
+    !bare.text.includes("[user-agent, x-app, anthropic-version"), bare.text.slice(0, 220));
+
+  /* 只补身份头：应该放行 */
+  const withId = await request(port, "/v1/models", {
+    headers: {
+      authorization: "Bearer " + gwToken,
+      "user-agent": "claude-cli/2.1.293 (external, cli)",
+      "x-app": "cli"
+    }
+  });
+  eq("只带 UA + x-app 就放行", withId.status, 200);
+  await sleep(250);
+  const upA = seen[seen.length - 1];
+  eq("anthropic-version 被网关补上", upA?.headers["anthropic-version"], "2023-06-01");
+  ok("session-id 被网关补上",
+    /^[0-9a-f-]{36}$/.test(String(upA?.headers["x-claude-code-session-id"])),
+    String(upA?.headers["x-claude-code-session-id"]));
+
+  /* 同一个 Key 的 session-id 必须跨请求稳定 —— 这正是它不该由客户端提供的理由 */
+  await request(port, "/v1/models", {
+    headers: {
+      authorization: "Bearer " + gwToken,
+      "user-agent": "claude-cli/2.1.293 (external, cli)",
+      "x-app": "cli"
+    }
+  });
+  await sleep(250);
+  const upB = seen[seen.length - 1];
+  eq("同一 Key 的 session-id 跨请求稳定",
+    upB?.headers["x-claude-code-session-id"], upA?.headers["x-claude-code-session-id"]);
+}
+
 clearTimeout(watchdog);
 upstream.close();
 await gw.close();

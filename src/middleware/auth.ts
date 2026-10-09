@@ -3,6 +3,7 @@ import { lowerHeaders, headerValue } from "../utils.ts";
 import { isApiKeyPlaintext } from "../store/apikeys.ts";
 import { sessionKey as deriveSessionKey } from "../ids.ts";
 import { openaiError, anthropicError } from "../http/respond.ts";
+import { CC_UA } from "../constants.ts";
 import type { ApiKeyStore, AuthState, Config } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -87,9 +88,18 @@ export function rejectUnauthorized(res: ServerResponse, isOpenai: boolean, reaso
 }
 
 export function rejectGuard(res: ServerResponse, isOpenai: boolean, missing: string[]): void {
+  /* 这条消息往往是用户唯一的线索，所以说清三件事：
+     缺了什么、为什么会被拒、以及照抄就能过的修法。 */
   const msg =
-    "请求头校验失败：缺少或不匹配 Claude Code 头 [" + missing.join(", ") +
-    "]。当前 API Key 绑定的是 Claude Code 指纹策略；若要让第三方客户端接入，请在面板把该 Key 的指纹策略改为 passthrough。";
+    "请求头校验失败：缺少或不匹配 Claude Code 头 [" + missing.join(", ") + "]。\n" +
+    "这个 Key 绑定的是 claude_code 指纹策略，网关会拒绝看起来不像 Claude Code 的客户端，" +
+    "以免账号因为异常客户端被上游风控。\n" +
+    "两种改法：\n" +
+    "  1. 请求里带上这两个头（真 Claude Code 本来就会带）：\n" +
+    "       -H \"User-Agent: " + CC_UA + "\" -H \"x-app: cli\"\n" +
+    "     anthropic-version 与 x-claude-code-session-id 不用管，网关会自己补。\n" +
+    "  2. 用 curl / Postman 之类的工具调试：在面板把该 Key 的指纹策略改成 passthrough，" +
+    "网关仍会补齐规范头，只是不再因为缺头拒绝。";
   if (isOpenai) openaiError(res, 403, msg, "permission_error", "header_guard_rejected");
   else anthropicError(res, 403, msg, "permission_error");
 }

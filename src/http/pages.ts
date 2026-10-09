@@ -57,6 +57,7 @@ export function openaiSnippet(cfg: Config, token: string): string {
     "  -H \"Content-Type: application/json\" \\\n" +
     "  -H \"User-Agent: claude-cli/" + CC_VERSION + " (external, cli)\" \\\n" +
     "  -H \"x-app: cli\" \\\n" +
+    "  -H \"anthropic-version: 2023-06-01\" \\\n" +
     "  -d '{\"model\":\"claude-sonnet-4-5-20250929\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"
   );
 }

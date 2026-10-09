@@ -64,6 +64,28 @@ export function injectCanonicalHeaders(
   return out;
 }
 
+/**
+ * 只补「指纹类」头。这些是网关的职责，不是客户端的：
+ *   - x-claude-code-session-id 由种子（Key id / 网关令牌）派生，保证同一调用方跨请求稳定。
+ *     要求客户端提供它反而有害 —— 第三方客户端只会塞个随机值，稳定性直接没了。
+ *   - anthropic-version / anthropic-beta 是协议常量，客户端给不给都能补成规范值。
+ *
+ * 所以这三个头在任何模式下都注入（只补缺失项，客户端自己给了就用它的）。
+ * 真正要「拒绝」的是看起来不像 Claude Code 的身份头，那由 guardRequire 管。
+ */
+export function injectFingerprintHeaders(
+  headers: Record<string, string | string[] | undefined>,
+  cfg: Config,
+  seed?: string
+): Record<string, string | string[] | undefined> {
+  const lh = lowerHeaders(headers);
+  const out: Record<string, string | string[] | undefined> = { ...headers };
+  if (!lh["anthropic-version"]) out["anthropic-version"] = ANTHROPIC_VERSION;
+  if (!lh["anthropic-beta"]) out["anthropic-beta"] = CC_BETA;
+  if (!lh["x-claude-code-session-id"]) out["x-claude-code-session-id"] = uuidFrom(seed || cfg.secret);
+  return out;
+}
+
 /** 指纹种子：优先用 API Key 主键，避免把明文密钥参与派生 */
 export function fingerprintSeed(auth: AuthState): string {
   return auth.apiKey?.id ?? auth.token ?? "";
@@ -85,9 +107,10 @@ export function applyGuard(req: IncomingMessage, auth: AuthState, cfg: Config, l
 
   if (cfg.guardMode === "off") return { ok: true, headers: req.headers, missing: [] };
 
-  const headers = cfg.injectMissing
-    ? injectCanonicalHeaders(req.headers, cfg, seed)
-    : req.headers;
+  /* 指纹头无条件补：它们是网关的职责，不该让客户端操心 */
+  const withFp = injectFingerprintHeaders(req.headers, cfg, seed);
+  /* 身份头（user-agent / x-app）只在开了 injectMissing 时才补 —— 否则就等于放宽了守卫 */
+  const headers = cfg.injectMissing ? injectCanonicalHeaders(withFp, cfg, seed) : withFp;
 
   const r = checkClaudeCodeHeaders(headers as Record<string, unknown>, cfg);
   if (r.ok) return { ok: true, headers, missing: [] };

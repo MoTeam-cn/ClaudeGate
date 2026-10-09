@@ -249,3 +249,35 @@ session_id: K(),
 改写意味着**请求体不再逐字节等于客户端发来的内容**。这是刻意的：
 `metadata` 不参与 prompt cache，也不影响模型输出，只影响上游对设备身份的归并。
 要恢复逐字节透传就把 `REWRITE_USER_ID` 设为 `off`。
+
+## 遇到 403「请求头校验失败」怎么办
+
+绑定 `claude_code` 指纹策略的 Key，网关会拒绝看起来不像 Claude Code 的客户端，
+以免账号因为异常客户端被上游风控。裸 `curl` 就会撞上：
+
+```json
+{"error":{"message":"请求头校验失败：缺少或不匹配 Claude Code 头 [user-agent, x-app]。...",
+ "type":"permission_error","code":"header_guard_rejected"}}
+```
+
+两种改法：
+
+1. **请求里带上身份头**（真 Claude Code 本来就会带）：
+
+   ```bash
+   curl http://<落地机>:8080/v1/models \
+     -H "Authorization: Bearer sk-gw-..." \
+     -H "User-Agent: claude-cli/2.1.293 (external, cli)" \
+     -H "x-app: cli"
+   ```
+
+   `anthropic-version`、`anthropic-beta`、`x-claude-code-session-id` 不用管，网关注入。
+
+2. **调试用客户端**（curl / Postman / 第三方 SDK）：在面板把该 Key 的指纹策略改成 `passthrough`。
+   网关仍会补齐规范头，只是不再因为缺头拒绝。
+
+### 为什么 session-id 不由客户端提供
+
+`x-claude-code-session-id` 是网关从种子（API Key 主键或网关令牌）派生的，
+目的是**同一个调用方跨请求稳定**。要求客户端提供它只会得到随机值，稳定性直接没了 ——
+所以它属于「网关注入」而不是「客户端必填」。
