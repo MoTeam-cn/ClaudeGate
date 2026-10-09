@@ -1,6 +1,7 @@
 import { bind } from "./db.ts";
 import type { Database } from "./db.ts";
 import { randHex } from "../utils.ts";
+import { newDeviceId } from "../userid.ts";
 import type {
   Account,
   AccountInput,
@@ -22,6 +23,7 @@ interface Row {
   client_id: string | null;
   mode: string | null;
   account_uuid: string | null;
+  device_id: string | null;
   email: string | null;
   status: string;
   last_error: string | null;
@@ -60,6 +62,7 @@ function toAccount(r: Row): Account {
     clientId: r.client_id,
     mode: r.mode,
     accountUuid: r.account_uuid,
+    deviceId: r.device_id,
     email: r.email,
     status: r.status as AccountStatus,
     lastError: r.last_error,
@@ -95,6 +98,8 @@ export interface AccountStore {
   reviveDue(nowSec: number): number;
   /** 手动解除耗尽 */
   clearExhausted(id: string): void;
+  /** 取号专属 device_id；没有就生成并落库 */
+  ensureDeviceId(id: string): string;
   /** 保存用量快照 */
   saveUsage(id: string, usage: UsageSnapshot): void;
   /** 保存从响应头观察到的限流状态 */
@@ -256,6 +261,19 @@ export function createAccountStore(db: Database): AccountStore {
     return Number(r.changes);
   }
 
+  /** 取这个号的 device_id；没有就生成一个并落库，之后固定不变 */
+  function ensureDeviceId(id: string): string {
+    const row = raw.prepare("SELECT device_id FROM accounts WHERE id = ?").get(...bind([id])) as
+      | { device_id: string | null }
+      | undefined;
+    if (row?.device_id) return row.device_id;
+    const fresh = newDeviceId();
+    raw
+      .prepare("UPDATE accounts SET device_id = ?, updated_at = ? WHERE id = ?")
+      .run(...bind([fresh, Math.floor(Date.now() / 1000), id]));
+    return fresh;
+  }
+
   function clearExhausted(id: string): void {
     raw
       .prepare(
@@ -291,6 +309,7 @@ export function createAccountStore(db: Database): AccountStore {
     markExhausted,
     reviveDue,
     clearExhausted,
+    ensureDeviceId,
     saveUsage,
     saveRateLimit
   };

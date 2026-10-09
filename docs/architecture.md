@@ -18,7 +18,8 @@
       a. scheduler.pick()  挑号（粘性 → 绑定 → 轮询）
       b. credentials.ensure()  必要时刷新令牌（并发去重）
       c. buildUpstreamHeaders()  注入凭据，其余头保真
-      d. upstreamRequest()  经 Agent（含代理）发出
+      d. rewriteUserId()  把 metadata.user_id.device_id 换成该号专属值
+      e. upstreamRequest()  经 Agent（含代理）发出
 11. noteUpstream() —— 记下用了哪个号，观测限流响应头
 12. 响应
       · 错误：读完错误体，判额度耗尽，原样回给客户端
@@ -40,7 +41,8 @@ src/
   ids.ts                请求 ID 与会话键派生
   guard.ts              按 Key 的指纹守卫与规范头注入
   proxy.ts              上游调用：挑号 + 注入凭据
-  upstream.ts           连接池、TLS 指纹、SSE 转发、用量嗅探、响应头白名单
+  upstream.ts           连接池、TLS 指纹、SSE 转发、用量嗅探、响应头透传
+  userid.ts             按号固定 device_id，重写 metadata.user_id
   oauth.ts              OAuth PKCE、令牌刷新、beta 并集
   tokens.ts             自签网关令牌（gw1.）
   models.ts             模型别名映射

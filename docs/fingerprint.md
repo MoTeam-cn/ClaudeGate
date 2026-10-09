@@ -158,13 +158,49 @@ Today's date is 2026-10-09.
 
 默认 `REQ_ID_IN_RESPONSE=error`，成功响应保持原样透传；成功请求的 ID 只进日志。
 
-## 一个还没做的点
+## metadata.user_id：一个号一台设备
 
-`metadata.user_id` 里嵌着一个 `device_id`，是跨会话恒定的 64 位十六进制指纹：
+真 Claude Code 每次请求都带 `metadata.user_id`，是一个 **JSON 字符串**（二进制 @216149412，原文引用）：
 
-```json
-{"device_id":"a9560f...","account_uuid":"","session_id":"..."}
+```js
+device_id: tI(),
+account_uuid: Le(a.CLAUDE_CODE_REMOTE) && a.CLAUDE_CODE_ACCOUNT_UUID || oN()?.accountUuid || Dn()?.accountUuid || "",
+session_id: K(),
 ```
 
-**换 IP 带不走它**。网关当前原样透传。要切断与历史身份的关联需要改写这个字段，
-那会改变上游看到的账号画像，属于独立决策，默认不做。
+实测抓到的样子：
+
+```json
+{"device_id":"a9560fe7b981ffb5e975ae92397185d74c62105e12010efdd0f1760c0abbfb6c","account_uuid":"","session_id":"d9eb1b8f-8829-465a-b833-f5097370171c"}
+```
+
+`device_id` 是 64 位十六进制、**跨会话恒定** —— 换 IP、换网络都带不走它。
+
+### 问题
+
+号池里多个人共用同一个号时，上游会看到**同一个号上飘着一堆不同的 device_id**：
+一会儿是甲机器的，一会儿是乙机器的。这既不像正常用户（一个人的设备是固定的），
+也把本来无关的人通过同一个号关联到了一起。
+
+### 做法
+
+网关给**每个号**生成一个专属 `device_id`（首次用到时生成，落库，之后不变），
+转发前把 `metadata.user_id` 里的 `device_id` 换成这个值。
+
+| 字段 | 怎么处理 |
+|---|---|
+| `device_id` | 换成**该号专属**的值，跨请求、跨会话恒定 |
+| `account_uuid` | `device` 模式保持客户端原值；`full` 模式写成该号的 uuid |
+| `session_id` | 保持客户端原值 —— 会话本来就该变 |
+| 其余键（`ti`、`parent_session_id`、`tk`） | 原样保留，键序照真 Claude Code 的来 |
+
+客户端**没带** `metadata.user_id` 时会补一个（`session_id` 取
+`x-claude-code-session-id` 头）—— 真 Claude Code 每次都带，不带反而是特征。
+
+`REWRITE_USER_ID` 控制：`off` / `device`（默认）/ `full`。
+
+### 代价
+
+改写意味着**请求体不再逐字节等于客户端发来的内容**。这是刻意的：
+`metadata` 不参与 prompt cache，也不影响模型输出，只影响上游对设备身份的归并。
+要恢复逐字节透传就把 `REWRITE_USER_ID` 设为 `off`。

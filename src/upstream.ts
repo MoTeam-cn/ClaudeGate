@@ -6,7 +6,7 @@ import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 
-import { HOP_BY_HOP, RESPONSE_PASS_HEADERS, ANTHROPIC_VERSION, AUTH_HEADER_NAMES } from "./constants.ts";
+import { HOP_BY_HOP, RESPONSE_DROP_HEADERS, DECODED_ENCODINGS, ANTHROPIC_VERSION, AUTH_HEADER_NAMES } from "./constants.ts";
 import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
 import { injectCanonicalHeaders, fingerprintSeed } from "./guard.ts";
 import { headerValue } from "./utils.ts";
@@ -151,7 +151,30 @@ export function decodeStream(res: IncomingMessage): Readable {
   if (enc === "gzip") return res.pipe(zlib.createGunzip());
   if (enc === "deflate") return res.pipe(zlib.createInflate());
   if (enc === "br") return res.pipe(zlib.createBrotliDecompress());
+  /* Node 23.8+ 才有 zstd；客户端 accept-encoding 里带 zstd，上游可能真用 */
+  const zstd = (zlib as unknown as { createZstdDecompress?: () => NodeJS.ReadWriteStream }).createZstdDecompress;
+  if (enc === "zstd" && typeof zstd === "function") {
+    return res.pipe(zstd() as unknown as NodeJS.ReadWriteStream) as unknown as Readable;
+  }
   return res;
+}
+
+/** 组装要回写给客户端的响应头：只丢必须丢的，其余原样透传 */
+export function passThroughHeaders(up: UpstreamResponse): Record<string, string | number | string[]> {
+  const headers: Record<string, string | number | string[]> = {};
+  const enc = String(up.headers["content-encoding"] ?? "").toLowerCase();
+  const decoded = DECODED_ENCODINGS.has(enc);
+  for (const [k, v] of Object.entries(up.headers)) {
+    if (v === undefined) continue;
+    const lk = k.toLowerCase();
+    if (RESPONSE_DROP_HEADERS.has(lk)) continue;
+    /* 只有我们真解压了才敢丢 content-encoding，否则下游拿到的是压缩体却没有标记 */
+    if (lk === "content-encoding" && !decoded) continue;
+    headers[k] = v;
+  }
+  if (!headers["cache-control"]) headers["cache-control"] = "no-store";
+  if (!headers["content-type"]) headers["content-type"] = "application/json";
+  return headers;
 }
 
 /**
@@ -251,24 +274,6 @@ export async function collect(stream: Readable, limit = 64 * 1024 * 1024): Promi
   return Buffer.concat(chunks);
 }
 
-/** 组装要回写给客户端的响应头（与 pipeUpstream 同一套规则） */
-export function passThroughHeaders(up: UpstreamResponse): Record<string, string | number | string[]> {
-  const headers: Record<string, string | number | string[]> = {};
-  for (const name of RESPONSE_PASS_HEADERS) {
-    const v = up.headers[name];
-    if (v !== undefined) headers[name] = v;
-  }
-  for (const k of Object.keys(up.headers)) {
-    if (k.toLowerCase().startsWith("anthropic-ratelimit-")) {
-      const v = up.headers[k];
-      if (v !== undefined) headers[k] = v;
-    }
-  }
-  if (!headers["cache-control"]) headers["cache-control"] = "no-store";
-  if (!headers["content-type"]) headers["content-type"] = "application/json";
-  return headers;
-}
-
 export interface PipeOptions {
   /** true 时先收全量再回写（需要改写响应体时用） */
   json?: boolean;
@@ -342,19 +347,7 @@ export async function pipeUpstream(
   up: UpstreamResponse,
   opts: PipeOptions = {}
 ): Promise<void> {
-  const headers: Record<string, string | number | string[]> = {};
-  for (const name of RESPONSE_PASS_HEADERS) {
-    const v = up.headers[name];
-    if (v !== undefined) headers[name] = v;
-  }
-  for (const k of Object.keys(up.headers)) {
-    if (k.toLowerCase().startsWith("anthropic-ratelimit-")) {
-      const v = up.headers[k];
-      if (v !== undefined) headers[k] = v;
-    }
-  }
-  if (!headers["cache-control"]) headers["cache-control"] = "no-store";
-  if (!headers["content-type"]) headers["content-type"] = "application/json";
+  const headers = passThroughHeaders(up);
 
   const stream = decodeStream(up.raw);
 

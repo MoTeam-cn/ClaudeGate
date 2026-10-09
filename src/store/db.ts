@@ -133,6 +133,7 @@ const SCHEMA = [
 
 /** 老库缺列时补列；SQLite 没有 ADD COLUMN IF NOT EXISTS，只能先查表结构 */
 const ADDITIONS: ReadonlyArray<readonly [string, string, string]> = [
+  ["accounts", "device_id", "TEXT"],
   ["accounts", "exhausted_until", "INTEGER"],
   ["accounts", "exhausted_reason", "TEXT"],
   ["accounts", "usage_json", "TEXT"],

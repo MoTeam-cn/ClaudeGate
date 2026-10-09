@@ -89,15 +89,33 @@ export const HOP_BY_HOP: ReadonlySet<string> = new Set<string>([
   "cookie"
 ]);
 
-/** 上游响应里需要回传给客户端的头 */
-export const RESPONSE_PASS_HEADERS: readonly string[] = [
-  "content-type",
-  "cache-control",
-  "request-id",
-  "x-request-id",
-  "retry-after",
-  "anthropic-version"
-];
+/**
+ * 上游响应里**必须丢掉**的头。其余一律原样回传。
+ *
+ * 早先这里是白名单，结果 anthropic-organization-id、anthropic-ratelimit-* 之外的
+ * 头全被吃了 —— Claude Code 会读 anthropic-* 与 request-id，白名单漏一个就是行为差异。
+ * 现在反过来：只列必须丢的。
+ */
+export const RESPONSE_DROP_HEADERS: ReadonlySet<string> = new Set<string>([
+  /* 逐跳，由 Node 自己管 */
+  "connection",
+  "keep-alive",
+  "transfer-encoding",
+  "te",
+  "trailer",
+  "upgrade",
+  "proxy-authenticate",
+  "proxy-authorization",
+  /* 我们已经解压，长度对不上了 */
+  "content-length",
+  /* 别让上游的 cookie 盖掉网关面板自己的会话 */
+  "set-cookie"
+]);
+
+/** 我们会解压的编码；只有这些才需要连带丢掉 content-encoding */
+export const DECODED_ENCODINGS: ReadonlySet<string> = new Set<string>(["gzip", "deflate", "br", "zstd"]);
+
+export const USER_ID_MODES: readonly string[] = ["off", "device", "full"];
 
 export interface ModelInfo {
   id: string;

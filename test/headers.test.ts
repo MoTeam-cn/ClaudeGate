@@ -43,12 +43,17 @@ eq("数组形式也支持",
   mergeBeta(["a", "b"], "c"), "a,b,c");
 
 /* ---- 端到端 ---- */
-const seen: Array<{ url: string; headers: Record<string, string>; rawHeaders: string[] }> = [];
+const seen: Array<{ url: string; headers: Record<string, string>; rawHeaders: string[]; body: string }> = [];
 const upstream = http.createServer((req, res) => {
   const chunks: Buffer[] = [];
   req.on("data", (c: Buffer) => chunks.push(c));
   req.on("end", () => {
-    seen.push({ url: req.url ?? "/", headers: req.headers as Record<string, string>, rawHeaders: req.rawHeaders });
+    seen.push({
+      url: req.url ?? "/",
+      headers: req.headers as Record<string, string>,
+      rawHeaders: req.rawHeaders,
+      body: Buffer.concat(chunks).toString("utf8")
+    });
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       id: "m", type: "message", role: "assistant", model: "x",
@@ -176,7 +181,8 @@ const ORDER = [
   eq("凭据头仍在第 2 位", gotOrder[1], "authorization");
   eq("凭据已换成号的令牌", last?.headers["authorization"], "Bearer oauth-access");
   ok("没有 transfer-encoding", last?.headers["transfer-encoding"] === undefined, String(last?.headers["transfer-encoding"]));
-  eq("content-length 与实际体长一致", last?.headers["content-length"], String(Buffer.byteLength(body)));
+  /* 网关会重写 metadata.user_id，体长可能变，但 content-length 必须等于实际发出去的长度 */
+  eq("content-length 等于上游实际收到的体长", last?.headers["content-length"], String(Buffer.byteLength(last?.body ?? "")));
 }
 
 console.log("\n=== E. 凭据头原地改名（Console 号） ===");

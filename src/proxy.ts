@@ -1,4 +1,6 @@
 import { buildUpstreamHeaders, upstreamRequest } from "./upstream.ts";
+import { rewriteUserId } from "./userid.ts";
+import crypto from "node:crypto";
 import type { Account, AuthState, GatewayContext, UpstreamResult } from "./types.ts";
 
 export interface CallOptions {
@@ -36,6 +38,21 @@ export async function callUpstream(
      替它改成 text/event-stream 会多一个可被识别的差异 */
   if (opts.stream && !Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
     headers["accept"] = "text/event-stream";
+  }
+
+  /* 一个号固定一个 device_id，别让上游看到同一个号在到处漂 */
+  if (account && body && typeof body === "object" && !Array.isArray(body)) {
+    const deviceId = ctx.accounts.ensureDeviceId(account.id);
+    const hdrSession = req.headers["x-claude-code-session-id"];
+    const sessionId = typeof hdrSession === "string" && hdrSession ? hdrSession : crypto.randomUUID();
+    const r = rewriteUserId(body as Record<string, unknown>, {
+      deviceId,
+      accountUuid: account.accountUuid,
+      mode: cfg.rewriteUserId,
+      createIfMissing: cfg.rewriteUserId !== "off",
+      sessionId
+    });
+    if (r.changed) ctx.log.debug?.("user_id: " + r.reason);
   }
 
   const payload = Buffer.from(JSON.stringify(body), "utf8");

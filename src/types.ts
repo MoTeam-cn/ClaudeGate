@@ -49,6 +49,8 @@ export interface Config {
 
   upstreamBase: string;
   upstreamProxy: string;
+  /** metadata.user_id 的重写模式 */
+  rewriteUserId: import("./userid.ts").UserIdMode;
   tlsMin: string;
   /** 出站 TLS 密码套件；空串表示用 Node 默认 */
   tlsCiphers: string;
@@ -346,6 +348,8 @@ export interface Account {
   clientId: string | null;
   mode: string | null;
   accountUuid: string | null;
+  /** 这个号专属的 device_id，首次用到时生成，之后固定不变 */
+  deviceId: string | null;
   email: string | null;
   status: AccountStatus;
   lastError: string | null;
