@@ -59,6 +59,9 @@ claude-code-20250219,interleaved-thinking-2025-05-14,tool-search-tool-2025-10-19
 另外 `accept` 只兜底不覆盖：真 Claude Code 发的是 `application/json`，
 替它改成 `text/event-stream` 会多一个可被识别的差异。
 
+> 协议层要不要对齐、Anthropic 到底靠什么判断客户端，见 [Anthropic 检测面](anthropic-detection.md)。
+> 这一节只讲 TLS 这一层。
+
 ## TLS 指纹
 
 TLS ClientHello 是最难对齐的一层，因为它由运行时决定，不是参数能完全控制的。

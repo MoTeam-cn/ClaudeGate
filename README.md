@@ -42,6 +42,7 @@ docker run -d --name claudegate --restart unless-stopped \
 | [快速开始](docs/getting-started.md) | 启动、面板导览、对外接口、两种客户端接入 |
 | [配置](docs/configuration.md) | 全部环境变量与面板可改项 |
 | [部署](docs/deployment.md) | systemd、Docker、GHCR、反向代理 |
+| [Anthropic 检测面](docs/anthropic-detection.md) | 官方网关契约、真实抓包头清单、JA3 的边界 |
 | [指纹与隐写](docs/fingerprint.md) | 两种 Key 策略、规范头注入、隐写码位表、请求 ID |
 | [用量与额度](docs/usage-quota.md) | token 统计、上游用量查询、额度耗尽封印与恢复 |
 | [出站代理](docs/proxy.md) | 四种代理协议、覆盖范围、排查 |

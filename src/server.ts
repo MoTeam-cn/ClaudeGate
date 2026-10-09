@@ -178,6 +178,8 @@ export function createGateway(env: Record<string, string | undefined> = process.
     { method: "POST", path: "/oauth/token", handler: auth.oauthToken },
     { method: "POST", path: "/logout", handler: admin.logout },
     { method: "GET", path: "/favicon.ico", handler: favicon },
+    { method: "HEAD", path: "/api/hello", handler: hello },
+    { method: "GET", path: "/api/hello", handler: hello },
     { method: "GET", path: "/panel", handler: panel.page },
     { method: "GET", path: "/panel/api", handler: panel.api },
     { method: "POST", path: "/panel/api", handler: panel.api }
@@ -196,6 +198,27 @@ export function createGateway(env: Record<string, string | undefined> = process.
   for (const r of publicRoutes) publicIndex.set(r.method + " " + r.path, r);
   const apiIndex = new Map<string, ApiRoute>();
   for (const r of apiRoutes) apiIndex.set(r.method + " " + r.path, r);
+
+  /**
+   * HEAD /api/hello —— Claude Code 的连接预热探测。
+   *
+   * 官方网关兼容指南把它列为「启动期尽力而为的流量，网关可以直接拒绝而不影响功能」，
+   * 但 404 与 200 是可观测的差异，照着 api.anthropic.com 的真实响应回一份最省事：
+   * 那边是 200 + {"message":"hello"} + application/json。
+   * 探测不带任何凭据，也不需要转发上游。
+   */
+  function hello(_req: IncomingMessage, res: ServerResponse): void {
+    /* 真端点带一个空格，content-length 是 20；少个空格就对不上了 */
+    const body = Buffer.from('{"message": "hello"}', "utf8");
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+      "x-robots-tag": "none"
+    });
+    /* HEAD 不能带 body，Node 会自己丢掉，但显式区分更清楚 */
+    if ((_req.method ?? "GET").toUpperCase() === "HEAD") { res.end(); return; }
+    res.end(body);
+  }
 
   /** 浏览器会无条件请求 favicon，回 204 免得面板控制台一直挂个 404 */
   function favicon(_req: IncomingMessage, res: ServerResponse): void {
