@@ -86,7 +86,7 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
     if (tracker) noteUpstream(ctx, tracker, up);
 
     if (up.status >= 400) {
-      const buf = await collect(decodeStream(up.raw), 8 * 1024 * 1024).catch(() => Buffer.alloc(0));
+      const buf = await collect(decodeStream(up.raw, up.headers["content-encoding"]), 8 * 1024 * 1024).catch(() => Buffer.alloc(0));
       const text = buf.toString("utf8");
       if (tracker) noteUpstreamError(tracker, up, text);
       res.writeHead(up.status, passThroughHeaders(up));

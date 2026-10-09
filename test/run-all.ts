@@ -3,7 +3,8 @@
 import { spawnSync } from "node:child_process";
 
 const files = ["test/smoke.ts", "test/stego.test.ts", "test/pool.test.ts", "test/usage.test.ts", "test/headers.test.ts",
-  "test/userid.test.ts", "test/proxy.test.ts"];
+  "test/userid.test.ts", "test/proxy.test.ts",
+  "test/transport.test.ts"];
 let failed = 0;
 
 for (const f of files) {

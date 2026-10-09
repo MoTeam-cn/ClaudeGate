@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse, IncomingHttpHeaders } from "node:http";
+import type { Readable } from "node:stream";
 import type { Agent as HttpsAgent } from "node:https";
 import type { Agent as HttpAgent } from "node:http";
 import type { ProxySpec } from "./net/proxy.ts";
@@ -49,6 +50,8 @@ export interface Config {
 
   upstreamBase: string;
   upstreamProxy: string;
+  /** 上游通道：auto / https / fetch */
+  transport: "auto" | "https" | "fetch";
   /** metadata.user_id 的重写模式 */
   rewriteUserId: import("./userid.ts").UserIdMode;
   tlsMin: string;
@@ -168,7 +171,7 @@ export interface GatewayContext {
 export interface UpstreamResponse {
   status: number;
   headers: IncomingHttpHeaders;
-  raw: IncomingMessage;
+  raw: Readable;
 }
 
 /** 成功建立的上游调用，带上本次使用的号池账号 */

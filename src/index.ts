@@ -9,6 +9,8 @@ gw.listen()
     gw.log.info(
       "guard=" + gw.cfg.guardMode +
       " injectMissing=" + gw.cfg.injectMissing +
+      " transport=" + (gw.cfg.transport === "auto" ? "https" : gw.cfg.transport) +
+      " runtime=" + (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined" ? "bun" : "node") +
       " upstream=" + gw.cfg.upstreamBase +
       " maxSockets=" + gw.cfg.upstreamMaxSockets
     );

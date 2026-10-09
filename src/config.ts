@@ -1,5 +1,5 @@
 import path from "node:path";
-import { PROD, DEFAULT_SCOPES, GUARD_MODES, OAUTH_MODES, BORINGSSL_CIPHERS, USER_ID_MODES } from "./constants.ts";
+import { PROD, DEFAULT_SCOPES, GUARD_MODES, OAUTH_MODES, BORINGSSL_CIPHERS, USER_ID_MODES, TRANSPORT_MODES } from "./constants.ts";
 import { num, bool, stripSlash } from "./utils.ts";
 import type { Config, GuardMode, OAuthMode, LogLevel, StegoMode, ReqIdMode } from "./types.ts";
 
@@ -74,6 +74,9 @@ export function loadConfig(env: Env): Config {
     env.HTTP_PROXY,
     env.http_proxy
   ]),
+    transport: (TRANSPORT_MODES as readonly string[]).includes(String(env.TRANSPORT ?? "auto").toLowerCase())
+      ? (String(env.TRANSPORT ?? "auto").toLowerCase() as Config["transport"])
+      : "auto",
     rewriteUserId: (USER_ID_MODES as readonly string[]).includes(String(env.REWRITE_USER_ID ?? "device").toLowerCase())
       ? (String(env.REWRITE_USER_ID ?? "device").toLowerCase() as Config["rewriteUserId"])
       : "device",

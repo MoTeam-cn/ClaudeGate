@@ -117,6 +117,8 @@ export const DECODED_ENCODINGS: ReadonlySet<string> = new Set<string>(["gzip", "
 
 export const USER_ID_MODES: readonly string[] = ["off", "device", "full"];
 
+export const TRANSPORT_MODES: readonly string[] = ["auto", "https", "fetch"];
+
 export interface ModelInfo {
   id: string;
   label: string;

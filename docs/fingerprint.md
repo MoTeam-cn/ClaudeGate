@@ -61,31 +61,50 @@ claude-code-20250219,interleaved-thinking-2025-05-14,tool-search-tool-2025-10-19
 
 ## TLS 指纹
 
-这是**唯一无法完全对齐**的一层。实测两边对同一个 TLS 服务端发出的 ClientHello：
+TLS ClientHello 是最难对齐的一层，因为它由运行时决定，不是参数能完全控制的。
+实测同一台机器、同一个 TLS 服务端，真 Claude Code 与三种通道：
 
-| | 网关（Node / OpenSSL） | Claude Code（Bun / BoringSSL） |
-|---|---|---|
-| 密码套件 | 默认 52 个 | 17 个 |
-| 扩展 | 11 个 | 12 个 |
-| JA3 | `a44663b9db6ccaa680f6174478197a2f` | `5260242a2eb12c71995767c24569bff5` |
+| 通道 | 密码套件 | 曲线 | 点格式 | 扩展 | JA3 |
+|---|---|---|---|---|---|
+| **真 Claude Code**（基准） | 17 | `11ec 1d 17 18` | `0` | 12 | `5260242a2eb12c71995767c24569bff5` |
+| Node `node:https` + 钉套件 | 17 | `11ec 1d 17 1e 18 19 100 101` | `0-1-2` | 11 | `10ece698233123fa8829a8b2a7de6db1` |
+| **Bun** `node:https` + 钉套件 | 17 | `11ec 1d 17 18` | `0` | 10 | `c33df997f0ea608c617c58df7ad5f1f6` |
+| **Bun** `fetch` | 17 | `11ec 1d 17 18` | `0` | **12** | `5260242a2eb12c71995767c24569bff5` |
 
-**套件列表已经对齐。** 网关默认把出站套件钉成 BoringSSL 那一份（17 个，顺序也一致），
-JA3 从 `a44663b9…` 收敛到 `10ece698233123fa8829a8b2a7de6db1`。
+### 密码套件已经对齐
 
-**剩下对不齐的**，因为 Node 不暴露扩展顺序与曲线列表：
+`TLS_CIPHERS` 默认把出站套件钉成 BoringSSL 那一份（17 个，顺序也一致），Node 从 52 个缩到 17 个。
+想退回 Node 默认：`TLS_CIPHERS=default`。
 
-| 差异 | 网关 | Claude Code |
-|---|---|---|
-| 曲线列表 | `11ec 1d 17 1e 18 19 100 101`（8 个） | `11ec 1d 17 18`（4 个） |
-| 点格式 | `0-1-2` | `0` |
-| 独有扩展 | `renegotiation_info`、`encrypt_then_mac` | `status_request`、`signed_certificate_timestamp` |
+### 曲线与点格式只有 Bun 对得上
 
-要抹平这一层只能换 TLS 实现（BoringSSL / curl-impersonate 之类），不是 Node 参数能解决的。
-实际影响也有限：JA3 是 Node/OpenSSL 的服务端指纹，在互联网上极其常见，
-它说明「这是个服务端客户端」，而不是「这是个罕见可疑客户端」。
+Node 的 OpenSSL 发 8 条曲线、点格式 `0-1-2`；Bun 的 BoringSSL 发 4 条、点格式 `0`，
+与真 Claude Code 一致。这一层 Node 不暴露、改不了 —— 所以**跑 Bun 是拿这一层的前提**。
 
-想退回 Node 默认套件（例如出站代理只支持老套件）：`TLS_CIPHERS=default`。
+### 只有 Bun 的 fetch 能拿到完全一致的 JA3
 
+Bun 的 `node:https` 少 `status_request(5)` 与 `signed_certificate_timestamp(18)` 两个扩展
+（`requestOCSP: true` 在 Bun 上被忽略，`Bun.connect` 也不带这两个）。
+只有 `fetch` 走的是 Chrome 级配置，12 个扩展全对，JA3 与真客户端一字不差。
+
+### 那为什么默认不跑 fetch
+
+因为 `fetch` 要付出两个代价：
+
+1. **请求头被重排** —— Bun 的 `Headers` 会重排自定义头，而真 Claude Code 的头序是插入序。
+   实测 `x-claude-code-session-id` 会跑到 `anthropic-beta` 后面去。
+2. **不支持出站代理** —— SOCKS5 直接报 `UnsupportedProxyProtocol`，
+   HTTP 代理只发绝对形式请求（CONNECT 隧道用不了）。
+
+头序是确定性信号，代理是硬需求，拿这两个换 2 个 TLS 扩展不划算。所以：
+
+| `TRANSPORT` | 用在 |
+|---|---|
+| `auto`（默认） | 走 `node:https`，保头序、支持全部代理 |
+| `https` | 同上，显式写死 |
+| `fetch` | 只在 **Bun + 直连** 时用，换完全一致的 JA3，接受头序与代理的损失 |
+
+想自己复现这张表：`node test/tls-probe.ts 3199` 起抓取器，把各个通道指过去即可。
 
 ## 隐写拦截
 

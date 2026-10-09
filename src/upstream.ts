@@ -11,6 +11,7 @@ import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
 import { injectCanonicalHeaders, fingerprintSeed } from "./guard.ts";
 import { headerValue } from "./utils.ts";
 import { connectViaProxy } from "./net/proxy.ts";
+import { fetchUpstream, fetchTransportUsable } from "./net/fetch.ts";
 import type { Account, AuthState, Config, UpstreamResponse } from "./types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { SecureVersion } from "node:tls";
@@ -108,7 +109,22 @@ export interface UpstreamCallOptions {
   body?: Buffer;
 }
 
+/**
+ * 选通道。
+ *
+ * auto 默认走 node:https —— 不是因为它的 TLS 更好（恰恰相反），而是因为
+ * fetch 通道会重排请求头、并且不支持出站代理。头序是确定性信号，代理是硬需求，
+ * 拿这两个去换 2 个 TLS 扩展不划算。
+ *
+ * 想要完全一致的 JA3（直连、不需要代理时）显式设 TRANSPORT=fetch。
+ * 三条通道实测的 JA3 见 net/fetch.ts 的注释与 docs/fingerprint.md。
+ */
 export function upstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise<UpstreamResponse> {
+  if (cfg.transport === "fetch") return fetchUpstream(cfg, opts);
+  return nodeUpstreamRequest(cfg, opts);
+}
+
+function nodeUpstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise<UpstreamResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(cfg.upstreamBase + opts.path);
     const isHttps = target.protocol === "https:";
@@ -146,17 +162,17 @@ export function upstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise
 }
 
 /** 上游若压缩则解压，避免把压缩体转给不支持的下游 */
-export function decodeStream(res: IncomingMessage): Readable {
-  const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
-  if (enc === "gzip") return res.pipe(zlib.createGunzip());
-  if (enc === "deflate") return res.pipe(zlib.createInflate());
-  if (enc === "br") return res.pipe(zlib.createBrotliDecompress());
-  /* Node 23.8+ 才有 zstd；客户端 accept-encoding 里带 zstd，上游可能真用 */
+export function decodeStream(body: Readable, encoding?: string): Readable {
+  const enc = String(encoding ?? "").toLowerCase();
+  if (enc === "gzip") return body.pipe(zlib.createGunzip());
+  if (enc === "deflate") return body.pipe(zlib.createInflate());
+  if (enc === "br") return body.pipe(zlib.createBrotliDecompress());
+  /* Node 23.8+ / Bun 才有 zstd；客户端 accept-encoding 里带 zstd，上游可能真用 */
   const zstd = (zlib as unknown as { createZstdDecompress?: () => NodeJS.ReadWriteStream }).createZstdDecompress;
   if (enc === "zstd" && typeof zstd === "function") {
-    return res.pipe(zstd() as unknown as NodeJS.ReadWriteStream) as unknown as Readable;
+    return body.pipe(zstd() as unknown as NodeJS.ReadWriteStream) as unknown as Readable;
   }
-  return res;
+  return body;
 }
 
 /** 组装要回写给客户端的响应头：只丢必须丢的，其余原样透传 */
@@ -349,7 +365,7 @@ export async function pipeUpstream(
 ): Promise<void> {
   const headers = passThroughHeaders(up);
 
-  const stream = decodeStream(up.raw);
+  const stream = decodeStream(up.raw, up.headers["content-encoding"]);
 
   if (!opts.json) {
     res.writeHead(up.status, headers);

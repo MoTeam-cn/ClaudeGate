@@ -98,7 +98,7 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
     if (tracker) noteUpstream(ctx, tracker, up);
 
     if (up.status >= 400) {
-      const buf = await collect(decodeStream(up.raw), 8 * 1024 * 1024).catch(() => Buffer.alloc(0));
+      const buf = await collect(decodeStream(up.raw, up.headers["content-encoding"]), 8 * 1024 * 1024).catch(() => Buffer.alloc(0));
       const text = buf.toString("utf8");
       const note = tracker ? noteUpstreamError(tracker, up, text) : null;
       openaiError(
@@ -113,7 +113,7 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
     if (wantStream) {
       streamAnthropicToOpenai(
         res,
-        decodeStream(up.raw),
+        decodeStream(up.raw, up.headers["content-encoding"]),
         model,
         bool(clean.stream_options?.include_usage, false),
         (u) => {

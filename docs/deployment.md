@@ -1,5 +1,8 @@
 # 部署
 
+> 镜像基于 `oven/bun`。不是因为 Bun 快，是因为它的 TLS 是 BoringSSL ——
+> 出站 ClientHello 的曲线与点格式才和真 Claude Code 对得上。见[指纹](fingerprint.md)。
+
 ## 系统要求
 
 - Node **22.6+**（Docker 镜像用的是 Node 24）
