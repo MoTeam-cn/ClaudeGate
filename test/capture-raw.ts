@@ -16,7 +16,15 @@ const server = http.createServer((req, res) => {
     const body = Buffer.concat(chunks).toString("utf8");
     fs.appendFileSync(
       logPath,
-      JSON.stringify({ at: new Date().toISOString(), method: req.method, url: req.url, headers: req.headers, body }) + "\n",
+      JSON.stringify({
+        at: new Date().toISOString(),
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        rawHeaders: req.rawHeaders,
+        httpVersion: req.httpVersion,
+        body
+      }) + "\n",
       "utf8"
     );
     console.log("HIT " + req.method + " " + req.url + " bodyLen=" + body.length);

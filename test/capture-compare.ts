@@ -26,6 +26,8 @@ const captured = JSON.parse(lines[lines.length - 1]) as {
 
 /* ---------- 抓包上游 ---------- */
 let seen: Record<string, string> | null = null;
+let seenRaw: string[] = [];
+let seenHttpVersion = "";
 const UPSTREAM_RES_HEADERS: Record<string, string> = {
   "content-type": "application/json",
   "request-id": "req_upstream_abc123",
@@ -56,6 +58,8 @@ const upstream = http.createServer((req, res) => {
   req.on("data", (c: Buffer) => chunks.push(c));
   req.on("end", () => {
     seen = req.headers as Record<string, string>;
+    seenRaw = req.rawHeaders;
+    seenHttpVersion = req.httpVersion;
     res.writeHead(200, UPSTREAM_RES_HEADERS);
     res.end(UPSTREAM_RES_BODY);
   });
@@ -88,13 +92,22 @@ const gwPort = await new Promise<number>((r) => gw.server.listen(0, "127.0.0.1",
 const token = signGatewayToken(gw.cfg, "default");
 
 /* ---------- 把抓到的请求原样打进去 ---------- */
+/* 必须按客户端原始顺序重放：如果用 req.headers 那个对象，
+   Node 会把 Host / Connection 补到末尾，量出来的是假差异。
+   直接照 rawHeaders 逐对建对象，键序就是线上顺序。 */
+const rawIn = (captured as unknown as { rawHeaders?: string[] }).rawHeaders ?? [];
 const sendHeaders: Record<string, string> = {};
-for (const [k, v] of Object.entries(captured.headers)) {
-  const lk = k.toLowerCase();
-  if (lk === "host" || lk === "content-length" || lk === "connection") continue;
-  sendHeaders[k] = lk === "authorization" ? "Bearer " + token : v;
+for (let i = 0; i + 1 < rawIn.length; i += 2) {
+  const name = rawIn[i];
+  const lk = name.toLowerCase();
+  const orig = rawIn[i + 1];
+  sendHeaders[name] =
+    lk === "authorization"
+      ? "Bearer " + token
+      : lk === "host"
+        ? "127.0.0.1:" + gwPort
+        : orig;
 }
-sendHeaders["content-length"] = String(Buffer.byteLength(captured.body));
 
 const clientRes = await new Promise<{ status: number; headers: Record<string, string | string[]>; body: string }>((resolve) => {
   const req = http.request(
@@ -132,6 +145,23 @@ for (const k of keys) {
   const fmt = (v: string | undefined): string => (v === undefined ? "—" : v.length > 200 ? v.slice(0, 197) + "..." : v);
   console.log("  " + mark.padEnd(6) + " " + k.padEnd(40) + " | 进: " + fmt(a).padEnd(64) + " | 出: " + fmt(b));
 }
+
+/* ---- 头部顺序对比 ---- */
+const namesOf = (raw: string[]): string[] => raw.filter((_, i) => i % 2 === 0).map((x) => x.toLowerCase());
+const inOrder = namesOf((captured as unknown as { rawHeaders?: string[] }).rawHeaders ?? []);
+const outOrder = namesOf(seenRaw);
+console.log("\n########## 请求头顺序 ##########");
+console.log("  Claude Code 发的顺序 (" + inOrder.length + " 个):");
+console.log("    " + inOrder.join(", "));
+console.log("  网关转给上游的顺序 (" + outOrder.length + " 个):");
+console.log("    " + outOrder.join(", "));
+const onlyIn = inOrder.filter((x) => !outOrder.includes(x));
+const onlyOut = outOrder.filter((x) => !inOrder.includes(x));
+const sameOrder = inOrder.filter((x) => outOrder.includes(x)).join(",") === outOrder.filter((x) => inOrder.includes(x)).join(",");
+console.log("  只在上游看到（网关新增）: " + (onlyOut.length ? onlyOut.join(", ") : "无"));
+console.log("  客户端有但上游没收到: " + (onlyIn.length ? onlyIn.join(", ") : "无"));
+console.log("  共有头顺序一致: " + (sameOrder ? "是" : "否"));
+console.log("  客户端 HTTP 版本: " + ((captured as unknown as { httpVersion?: string }).httpVersion ?? "?") + "  网关发出: " + seenHttpVersion);
 
 console.log("\n########## 请求体 ##########");
 console.log("  长度 进=" + captured.body.length + " 出=" + (seen ? "（上游已收到，见上）" : "无"));

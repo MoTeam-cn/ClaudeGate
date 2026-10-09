@@ -6,7 +6,7 @@ import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 
-import { HOP_BY_HOP, RESPONSE_PASS_HEADERS, ANTHROPIC_VERSION } from "./constants.ts";
+import { HOP_BY_HOP, RESPONSE_PASS_HEADERS, ANTHROPIC_VERSION, AUTH_HEADER_NAMES } from "./constants.ts";
 import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
 import { injectCanonicalHeaders, fingerprintSeed } from "./guard.ts";
 import { headerValue } from "./utils.ts";
@@ -55,7 +55,8 @@ export function createAgent(cfg: Config): https.Agent {
     ...keepAliveBase(cfg),
     minVersion: secureVersion(cfg.tlsMin),
     maxVersion: secureVersion(cfg.tlsMax),
-    ALPNProtocols: alpn
+    ALPNProtocols: alpn,
+    ...(cfg.tlsCiphers ? { ciphers: cfg.tlsCiphers } : {})
   };
   const spec = cfg.proxy ?? null;
   if (!spec) return new https.Agent(base);
@@ -73,7 +74,8 @@ export function createAgent(cfg: Config): https.Agent {
             servername: net.isIP(host) ? undefined : host,
             minVersion: secureVersion(cfg.tlsMin),
             maxVersion: secureVersion(cfg.tlsMax),
-            ALPNProtocols: alpn
+            ALPNProtocols: alpn,
+            ...(cfg.tlsCiphers ? { ciphers: cfg.tlsCiphers } : {})
           });
           s.on("secureConnect", () => cb(null, s));
           s.on("error", (e: Error) => cb(e, null));
@@ -111,7 +113,10 @@ export function upstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise
     const target = new URL(cfg.upstreamBase + opts.path);
     const isHttps = target.protocol === "https:";
     const headers: Record<string, string | string[] | undefined> = { ...opts.headers };
-    headers["host"] = target.host;
+    /* host 必须指向真实上游；客户端带了就原地改值，别挪到末尾 */
+    const hostKey = Object.keys(headers).find((k) => k.toLowerCase() === "host");
+    if (hostKey) headers[hostKey] = target.host;
+    else headers["host"] = target.host;
 
     const mod = isHttps ? https : http;
     const reqOpts: https.RequestOptions = {
@@ -130,7 +135,12 @@ export function upstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise
     });
     req.on("error", reject);
     req.setTimeout(cfg.upstreamTimeoutMs, () => req.destroy(new Error("upstream timeout")));
-    if (opts.body) req.write(opts.body);
+    if (opts.body) {
+      /* 必须显式给 content-length：不写的话 Node 会退回 chunked 传输，
+         而真 Claude Code 发的是 content-length —— 传输分帧方式是可观测的差异 */
+      req.setHeader("content-length", String(opts.body.length));
+      req.write(opts.body);
+    }
     req.end();
   });
 }
@@ -153,13 +163,33 @@ export function buildUpstreamHeaders(
   cfg: Config,
   account: Account | null
 ): Record<string, string | string[] | undefined> {
-  const source = req.headers;
-  let headers: Record<string, string | string[] | undefined> = {};
+  /* 用 rawHeaders 而不是 headers：前者保留客户端发来的原始顺序与大小写。
+     HTTP 头的顺序本身是可观测的指纹，打乱它等于白做保真。 */
+  const source = req.rawHeaders;
+  const entries: Array<{ name: string; value: string }> = [];
+  let authSlot = -1;
 
-  for (const k of Object.keys(source)) {
-    if (HOP_BY_HOP.has(k.toLowerCase())) continue;
-    headers[k] = source[k];
+  for (let i = 0; i + 1 < source.length; i += 2) {
+    const name = source[i];
+    const lk = name.toLowerCase();
+    /* 凭据头要先判：它不在逐跳集合里，但万一有人加回去也不能被吃掉 */
+    if (AUTH_HEADER_NAMES.has(lk)) {
+      /* 记住第一个凭据头的位置，稍后原地换成我们的凭据 */
+      if (authSlot === -1) authSlot = entries.length;
+      continue;
+    }
+    if (HOP_BY_HOP.has(lk)) continue;
+    /* connection 保位置但值归一：上游连接是复用的，客户端说 close 也不能真关 */
+    if (lk === "connection") {
+      entries.push({ name, value: "keep-alive" });
+      continue;
+    }
+    entries.push({ name, value: source[i + 1] });
   }
+
+  /* 先落成对象，让规范头注入按老逻辑跑（它只补缺失项，不改顺序） */
+  let headers: Record<string, string | string[] | undefined> = {};
+  for (const e of entries) headers[e.name] = e.value;
 
   /* 非 Claude Code 指纹的 Key 也必须注入规范头，否则上游一眼看出是第三方客户端 */
   if (cfg.injectMissing || auth.useClaudeFingerprint === false) {
@@ -170,19 +200,38 @@ export function buildUpstreamHeaders(
     ? { "x-api-key": auth.passthroughKey, "anthropic-version": ANTHROPIC_VERSION }
     : upstreamAuthHeaders(account);
 
+  /* 凭据头：插回客户端原本的位置，而不是删了再加到末尾 */
+  const credName = Object.keys(authHeaders).find((k) => AUTH_HEADER_NAMES.has(k.toLowerCase()));
+  if (credName) {
+    const credValue = authHeaders[credName];
+    if (authSlot >= 0) {
+      /* 原地插入：先重建有序数组，再插到那个下标 */
+      const rebuilt = Object.keys(headers).map((k) => ({ name: k, value: String(headers[k]) }));
+      const insertAt = Math.min(authSlot, rebuilt.length);
+      rebuilt.splice(insertAt, 0, { name: credName, value: credValue });
+      headers = {};
+      for (const e of rebuilt) headers[e.name] = e.value;
+    } else {
+      headers[credName] = credValue;
+    }
+  }
+
+  /* 其余认证头：beta 求并集（原地），版本号缺失才补 */
   for (const ak of Object.keys(authHeaders)) {
     const lk = ak.toLowerCase();
+    if (AUTH_HEADER_NAMES.has(lk)) continue;
     const existingKey = Object.keys(headers).find((hk) => hk.toLowerCase() === lk);
 
-    /* beta 是能力集合，必须并集：客户端带什么就留什么，再补上我们需要的 */
     if (lk === "anthropic-beta") {
-      headers[ak] = mergeBeta(existingKey ? headers[existingKey] : undefined, authHeaders[ak]);
-      if (existingKey && existingKey !== ak) delete headers[existingKey];
+      /* 覆盖会丢掉 claude-code-20250219 / interleaved-thinking / tool-search-tool，
+         请求体里的 thinking 与 tool search 依赖它们 */
+      const merged = mergeBeta(existingKey ? headers[existingKey] : undefined, authHeaders[ak]);
+      if (existingKey) headers[existingKey] = merged;
+      else headers[ak] = merged;
       continue;
     }
 
-    for (const hk of Object.keys(headers)) if (hk.toLowerCase() === lk) delete headers[hk];
-    headers[ak] = authHeaders[ak];
+    if (!existingKey) headers[ak] = authHeaders[ak];
   }
 
   if (!headers["content-type"] && !headers["Content-Type"]) headers["content-type"] = "application/json";

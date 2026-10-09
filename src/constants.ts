@@ -43,10 +43,42 @@ export const PROTECTED_HEADERS: readonly string[] = [
   "x-anthropic-additional-protection"
 ];
 
-/** 逐跳头，不透传给上游 */
+/**
+ * 与 Claude Code 真正使用的 BoringSSL 客户端完全一致的一组密码套件，顺序也一致。
+ * Node 默认发 52 个套件（含一堆 CBC / 老套件），BoringSSL 只发 17 个；
+ * 套件列表是 TLS 指纹里权重最大的一段，所以默认就按这个来发。
+ * 想恢复 Node 默认（比如出站代理只支持老套件）：TLS_CIPHERS=default
+ */
+export const BORINGSSL_CIPHERS: string = [
+  "TLS_AES_128_GCM_SHA256",
+  "TLS_AES_256_GCM_SHA384",
+  "TLS_CHACHA20_POLY1305_SHA256",
+  "ECDHE-ECDSA-AES128-GCM-SHA256",
+  "ECDHE-RSA-AES128-GCM-SHA256",
+  "ECDHE-ECDSA-AES256-GCM-SHA384",
+  "ECDHE-RSA-AES256-GCM-SHA384",
+  "ECDHE-ECDSA-CHACHA20-POLY1305",
+  "ECDHE-RSA-CHACHA20-POLY1305",
+  "ECDHE-ECDSA-AES128-SHA",
+  "ECDHE-RSA-AES128-SHA",
+  "ECDHE-ECDSA-AES256-SHA",
+  "ECDHE-RSA-AES256-SHA",
+  "AES128-GCM-SHA256",
+  "AES256-GCM-SHA384",
+  "AES128-SHA",
+  "AES256-SHA"
+].join(":");
+
+/** 凭据类请求头：转发时按客户端原来的位置换成号池账号的凭据 */
+export const AUTH_HEADER_NAMES: ReadonlySet<string> = new Set<string>(["authorization", "x-api-key"]);
+
+/**
+ * 真正逐跳、不该转给上游的头。
+ * 注意 authorization / x-api-key / content-length 不在这里：
+ * 它们要么原地换成号的凭据（保位置），要么按实际体长重算，
+ * 直接丢掉会让它们跑到头部列表末尾，顺序本身就是可观测的指纹。
+ */
 export const HOP_BY_HOP: ReadonlySet<string> = new Set<string>([
-  "host",
-  "connection",
   "keep-alive",
   "proxy-authenticate",
   "proxy-authorization",
@@ -54,9 +86,6 @@ export const HOP_BY_HOP: ReadonlySet<string> = new Set<string>([
   "trailer",
   "transfer-encoding",
   "upgrade",
-  "content-length",
-  "authorization",
-  "x-api-key",
   "cookie"
 ]);
 

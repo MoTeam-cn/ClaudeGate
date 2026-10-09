@@ -1,5 +1,5 @@
 import path from "node:path";
-import { PROD, DEFAULT_SCOPES, GUARD_MODES, OAUTH_MODES } from "./constants.ts";
+import { PROD, DEFAULT_SCOPES, GUARD_MODES, OAUTH_MODES, BORINGSSL_CIPHERS } from "./constants.ts";
 import { num, bool, stripSlash } from "./utils.ts";
 import type { Config, GuardMode, OAuthMode, LogLevel, StegoMode, ReqIdMode } from "./types.ts";
 
@@ -8,6 +8,19 @@ const STEGO_MODES: readonly StegoMode[] = ["block", "strip", "log", "off"];
 const REQ_ID_MODES: readonly ReqIdMode[] = ["error", "always", "off"];
 
 type Env = Record<string, string | undefined>;
+
+/**
+ * 出站 TLS 套件列表。
+ * 默认按 BoringSSL（真 Claude Code 用的那份）发，缩掉 Node 默认多出来的 35 个老套件 ——
+ * 套件列表是 TLS 指纹里权重最大的一段。
+ * 传 default / node / off 表示退回 Node 自带默认。
+ */
+function resolveTlsCiphers(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === "") return BORINGSSL_CIPHERS;
+  const t = raw.trim().toLowerCase();
+  if (t === "default" || t === "node" || t === "off") return "";
+  return raw;
+}
 
 /** 取第一个非空的代理变量：UPSTREAM_PROXY 优先，其次标准变量 */
 function firstNonEmpty(values: Array<string | undefined>): string {
@@ -62,6 +75,7 @@ export function loadConfig(env: Env): Config {
     env.http_proxy
   ]),
     tlsMin: env.TLS_MIN ?? "TLSv1.2",
+    tlsCiphers: resolveTlsCiphers(env.TLS_CIPHERS),
     tlsMax: env.TLS_MAX ?? "TLSv1.3",
     upstreamAlpn: env.UPSTREAM_ALPN ?? "http/1.1",
     upstreamTimeoutMs: num(env.UPSTREAM_TIMEOUT_MS, 600000),

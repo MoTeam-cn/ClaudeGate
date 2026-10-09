@@ -22,6 +22,42 @@
 
 ## 查询上游用量
 
+### 路径确实是 `/api/oauth/usage`
+
+Claude Code 查额度打的就是这个路径，带 `Authorization: Bearer <token>` 与
+`anthropic-beta: oauth-2025-04-20`。二进制里它是这样注册的（原文引用）：
+
+```js
+var ile = {
+  plain: "/api/oauth/usage",
+  at_wall: "/api/oauth/usage?at_wall=1&skip_spend=1",
+  cedar_ember: "/api/oauth/usage?cedar_ember=1&skip_spend=1"
+};
+```
+
+### 但它只在官方域名下才会被调用
+
+Claude Code 把 first-party 定义成**字面判断 host 是否等于 `api.anthropic.com`**（原文引用）：
+
+```js
+function Of() {
+  let e = process.env.ANTHROPIC_BASE_URL;
+  if (!e) return true;
+  return Fg(e);
+}
+function Fg(e) {
+  try { let t = new URL(e).host; return ["api.anthropic.com"].includes(t); }
+  catch { return false; }
+}
+```
+
+所以把 Claude Code 指向网关时，它**根本不会去查额度** —— 实测抓包只有一条
+`POST /v1/messages?beta=true`，没有任何 GET。网关因此不需要实现这个端点。
+
+反过来，网关自己替号池查额度时打的是真 `https://api.anthropic.com/api/oauth/usage`，这一层是对的。
+
+### 网关侧的查询
+
 | 账号类型 | 查法 |
 |---|---|
 | 订阅 OAuth | `GET /api/oauth/usage`，返回 `five_hour` / `seven_day` / `seven_day_opus` / `seven_day_sonnet` 等窗口的 `utilization` 与 `resets_at`，还有 `extra_usage` |

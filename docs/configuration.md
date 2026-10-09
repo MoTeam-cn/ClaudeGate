@@ -35,6 +35,7 @@
 | `UPSTREAM_BASE` | `https://api.anthropic.com` | 上游地址 |
 | `UPSTREAM_PROXY` | 空 | 出站代理，见[出站代理](proxy.md) |
 | `TLS_MIN` / `TLS_MAX` | `TLSv1.2` / `TLSv1.3` | 到上游的 TLS 版本范围，**不要随意改**，它是指纹的一部分 |
+| `TLS_CIPHERS` | BoringSSL 那 17 个 | 出站密码套件。默认与真 Claude Code 一致；填 `default` 退回 Node 自带 52 个 |
 | `UPSTREAM_ALPN` | `http/1.1` | ALPN 协议列表，同上 |
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游请求超时 |
 | `UPSTREAM_MAX_SOCKETS` | `64` | 到上游的最大并发连接，按落地机内存与上游限额调 |

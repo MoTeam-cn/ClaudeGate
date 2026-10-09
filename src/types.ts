@@ -50,6 +50,8 @@ export interface Config {
   upstreamBase: string;
   upstreamProxy: string;
   tlsMin: string;
+  /** 出站 TLS 密码套件；空串表示用 Node 默认 */
+  tlsCiphers: string;
   tlsMax: string;
   upstreamAlpn: string;
   upstreamTimeoutMs: number;

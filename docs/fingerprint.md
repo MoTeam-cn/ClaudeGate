@@ -16,15 +16,30 @@
 
 ## 请求头保真度
 
-网关转发请求头时只做三件事，其余逐字节保留：
+网关按客户端**发来的原始顺序**重建请求头，只动必要的值：
 
 | 动作 | 头 |
 |---|---|
-| 原样保留 | `user-agent`、`x-app`、`x-claude-code-session-id`、7 个 `x-stainless-*`、`anthropic-version`、`accept`、`accept-encoding` 等 |
-| 替换 | `authorization` / `x-api-key` → 换成号的凭据 |
-| 重算 | `host`、`content-length` |
+| 原样保留（含位置） | `user-agent`、`x-app`、`x-claude-code-session-id`、7 个 `x-stainless-*`、`anthropic-version`、`accept`、`accept-encoding` 等 |
+| 原地替换（位置不变） | `authorization` / `x-api-key` → 换成号的凭据 |
+| 原地改值 | `host` → 真实上游 |
+| 按实际体长重算 | `content-length` |
 
-有一个坑值得单独说：**`anthropic-beta` 必须求并集，不能覆盖**。
+实测：真 Claude Code 发 21 个头，网关转给上游也是 21 个，**同名、同序、同值**，
+只有 `authorization` 的值换成号池凭据、`host` 指向上游、`anthropic-beta` 追加一项。
+
+### 为什么顺序也要管
+
+HTTP 头顺序本身是可观测的指纹。早先的实现把 `authorization` 删掉再追加，
+它就从第 2 位掉到了倒数第 4 位 —— 头集合完全正确，顺序却露了馅。
+现在按 `req.rawHeaders` 逐对重建，替换类的头在原下标就地改写。
+
+### 传输分帧也要一致
+
+早期实现把 `content-length` 当逐跳头丢掉，Node 于是退回 `transfer-encoding: chunked`。
+真 Claude Code 发的是 `content-length`。现在按实际体长显式设置。
+
+### `anthropic-beta` 必须求并集，不能覆盖
 
 Claude Code 会带三个能力标志：
 
@@ -43,6 +58,34 @@ claude-code-20250219,interleaved-thinking-2025-05-14,tool-search-tool-2025-10-19
 
 另外 `accept` 只兜底不覆盖：真 Claude Code 发的是 `application/json`，
 替它改成 `text/event-stream` 会多一个可被识别的差异。
+
+## TLS 指纹
+
+这是**唯一无法完全对齐**的一层。实测两边对同一个 TLS 服务端发出的 ClientHello：
+
+| | 网关（Node / OpenSSL） | Claude Code（Bun / BoringSSL） |
+|---|---|---|
+| 密码套件 | 默认 52 个 | 17 个 |
+| 扩展 | 11 个 | 12 个 |
+| JA3 | `a44663b9db6ccaa680f6174478197a2f` | `5260242a2eb12c71995767c24569bff5` |
+
+**套件列表已经对齐。** 网关默认把出站套件钉成 BoringSSL 那一份（17 个，顺序也一致），
+JA3 从 `a44663b9…` 收敛到 `10ece698233123fa8829a8b2a7de6db1`。
+
+**剩下对不齐的**，因为 Node 不暴露扩展顺序与曲线列表：
+
+| 差异 | 网关 | Claude Code |
+|---|---|---|
+| 曲线列表 | `11ec 1d 17 1e 18 19 100 101`（8 个） | `11ec 1d 17 18`（4 个） |
+| 点格式 | `0-1-2` | `0` |
+| 独有扩展 | `renegotiation_info`、`encrypt_then_mac` | `status_request`、`signed_certificate_timestamp` |
+
+要抹平这一层只能换 TLS 实现（BoringSSL / curl-impersonate 之类），不是 Node 参数能解决的。
+实际影响也有限：JA3 是 Node/OpenSSL 的服务端指纹，在互联网上极其常见，
+它说明「这是个服务端客户端」，而不是「这是个罕见可疑客户端」。
+
+想退回 Node 默认套件（例如出站代理只支持老套件）：`TLS_CIPHERS=default`。
+
 
 ## 隐写拦截
 
@@ -93,7 +136,10 @@ Today's date is 2026-10-09.
 ## 请求 ID
 
 每个请求生成 `req_` 加 26 位 base64url，与 Claude Code 自身校验的
-`^req_[A-Za-z0-9_-]{1,36}$^{Q} 同形。
+`^req_[A-Za-z0-9_-]{1,36}## 请求 ID
+
+每个请求生成 `req_` 加 26 位 base64url，与 Claude Code 自身校验的
+`^req_[A-Za-z0-9_-]{1,36} 同形。
 
 **只放响应体，不进响应头** —— 加响应头会改变成功响应的字节，容易被看出中转。
 
