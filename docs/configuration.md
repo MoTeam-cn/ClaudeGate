@@ -77,7 +77,7 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `OAUTH_MODE` | `claude_ai` | `claude_ai` 订阅账号走 Bearer 推理 / `console` 兑换 API Key / `design` |
+| `OAUTH_MODE` | `claude_ai` | `claude_ai` 建订阅账号、走 Bearer 推理，**保留 OAuth 令牌以便查订阅额度**；`console` 会把令牌兑换成 API Key（兑换失败直接报错，不会静默降级成订阅号）；`design` 走设计版客户端 |
 | `OAUTH_CLIENT_ID` / `OAUTH_SCOPES` / `OAUTH_AUTHORIZE_URL` / `OAUTH_TOKEN_URL` | 内置 | 一般不用改 |
 | `OAUTH_MANUAL_REDIRECT` | 官方回调页 | 手动粘贴授权码时的回调地址 |
 

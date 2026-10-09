@@ -26,6 +26,7 @@ npm run test:agent     # 运行时证据：node:sqlite 与代理 Agent 猴补丁
 npm run test:panel     # 面板：渲染产物、脚本可解析、前后端 action 契约、HTTP 层
 npm run test:contract  # 官方网关兼容指南的逐条对照
 npm run test:ja3       # 走代理时的 TLS 指纹回归
+npm run test:oauth     # 授权登录与加号后自动查额度
 ```
 
 ## 测试构成
@@ -44,7 +45,8 @@ npm run test:ja3       # 走代理时的 TLS 指纹回归
 | panel | 93 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
 | gateway-contract | 37 | 对着官方网关兼容指南逐条验：/api/hello、21 个真实抓包头的逐位透传、beta 原样、官方点名的响应头 |
 | ja3 | 4（Node）/ 11（Bun） | 走 HTTP CONNECT 代理的 JA3 与真 Claude Code 逐位一致；通道选择规则 |
-| **合计** | **569**（Node）/ **577**（Bun） | |
+| oauth | 25 | 授权两段式全链路（mock 令牌/profile/用量端点）：自动查额度并落库、查询失败不影响建号、rejected 封印、console 模式不查且兑换失败要报错 |
+| **合计** | **594**（Node）/ **602**（Bun） | |
 
 测试全部监听 0 端口（随机端口），互不冲突，可以并行跑。
 

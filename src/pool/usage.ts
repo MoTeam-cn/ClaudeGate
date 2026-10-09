@@ -93,8 +93,11 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
   };
 }
 
-/** 查订阅账号的用量。Console API Key 没有这个接口，调用前要判 kind。 */
-export async function fetchOauthUsage(cfg: Config, account: Account): Promise<UsageSnapshot> {
+/**
+ * 查订阅账号的用量。Console API Key 没有这个接口，调用前要判 kind。
+ * timeoutMs 可配：加号后自动查的那条路要短一点，别把面板拖住。
+ */
+export async function fetchOauthUsage(cfg: Config, account: Account, timeoutMs = 15000): Promise<UsageSnapshot> {
   const base = cfg.upstreamBase.replace(/\/+$/, "");
   const url = base + "/api/oauth/usage";
   const fail = (msg: string): UsageSnapshot => ({
@@ -119,7 +122,7 @@ export async function fetchOauthUsage(cfg: Config, account: Account): Promise<Us
         "user-agent": CC_UA,
         accept: "application/json"
       },
-      timeoutMs: 15000
+      timeoutMs
     });
     const text = res.text;
     if (!res.ok) return fail("HTTP " + res.status + " " + text.slice(0, 200));

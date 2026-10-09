@@ -5,7 +5,7 @@ import { applyRuntimeSettings } from "../config.ts";
 import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
 import { startOAuth, finishOAuth } from "../oauth-flow.ts";
-import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery } from "../types.ts";
+import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery, UsageSnapshot } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 const SETTING_KEYS = ["guardMode", "stegoMode", "reqIdInResponse", "injectMissing", "logRetentionDays", "runtimeLogMax"];
@@ -228,6 +228,30 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
     }
   }
 
+  /**
+   * 查一次额度并落库；用量接口明说窗口 rejected 就封印到重置时刻。
+   * account.usage 与 oauth.finish（加号后自动查）共用这一份，别让封印逻辑长成两套。
+   */
+  async function refreshUsage(acc: Account, timeoutMs = 15000): Promise<{ snap: UsageSnapshot; sealedUntil: number | null }> {
+    const snap = await fetchOauthUsage(cfg, acc, timeoutMs);
+    accounts.saveUsage(acc.id, snap);
+
+    let sealed: number | null = null;
+    if (snap.ok) {
+      for (const w of Object.values(snap.windows)) {
+        if (w.status !== "rejected") continue;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const at = w.resetsAt && w.resetsAt > nowSec ? w.resetsAt : nowSec + 5 * 3600;
+        sealed = sealed === null ? at : Math.min(sealed, at);
+      }
+      if (sealed !== null) {
+        const capped = Math.min(sealed, Math.floor(Date.now() / 1000) + 6 * 3600);
+        accounts.markExhausted(acc.id, "用量接口显示窗口已 rejected", capped);
+      }
+    }
+    return { snap, sealedUntil: sealed };
+  }
+
   async function post(req: IncomingMessage, res: ServerResponse, url: URL, action: string): Promise<void> {
     const body = (await readJson(req, cfg.maxBodyBytes)) as Record<string, unknown>;
 
@@ -253,7 +277,17 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         try {
           const done = await finishOAuth(ctx, state, code);
           ctx.log.info("panel: oauth finish account=" + done.account.id + " email=" + String(done.email ?? "-"));
-          sendJson(res, 200, { ok: true, data: publicAccount(done.account) });
+
+          /* 建完号顺手查一次额度，省得再手点「查用量」。
+             订阅号才有这个接口；超时压到 8 秒，别把面板拖住。
+             账号此时已经建好了，这里失败也不影响它 */
+          let usage: UsageSnapshot | null = null;
+          if (done.account.kind === "oauth") {
+            const r = await refreshUsage(done.account, 8000);
+            usage = r.snap;
+            ctx.log.info("panel: oauth usage for " + done.account.id + " ok=" + r.snap.ok + (r.snap.ok ? "" : " err=" + String(r.snap.error ?? "")));
+          }
+          sendJson(res, 200, { ok: true, data: { ...publicAccount(done.account), usage } });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           ctx.log.warn("panel: oauth finish failed: " + msg);
@@ -369,24 +403,8 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         }
         const results: Array<Record<string, unknown>> = [];
         for (const acc of targets) {
-          const snap = await fetchOauthUsage(cfg, acc);
-          accounts.saveUsage(acc.id, snap);
-
-          /* 用量接口明说窗口 rejected，就直接封印到重置时刻 */
-          let sealed: number | null = null;
-          if (snap.ok) {
-            for (const w of Object.values(snap.windows)) {
-              if (w.status !== "rejected") continue;
-              const nowSec = Math.floor(Date.now() / 1000);
-              const at = w.resetsAt && w.resetsAt > nowSec ? w.resetsAt : nowSec + 5 * 3600;
-              sealed = sealed === null ? at : Math.min(sealed, at);
-            }
-            if (sealed !== null) {
-              const capped = Math.min(sealed, Math.floor(Date.now() / 1000) + 6 * 3600);
-              accounts.markExhausted(acc.id, "用量接口显示窗口已 rejected", capped);
-            }
-          }
-          results.push({ id: acc.id, label: acc.label, sealedUntil: sealed, ...snap });
+          const { snap, sealedUntil } = await refreshUsage(acc);
+          results.push({ id: acc.id, label: acc.label, sealedUntil, ...snap });
         }
         ctx.log.info("panel: usage queried for " + results.length + " account(s)");
         sendJson(res, 200, { ok: true, data: results });

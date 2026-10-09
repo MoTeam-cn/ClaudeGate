@@ -106,6 +106,14 @@ export async function finishOAuth(
   let apiKey: string | null = null;
   if (ctx.cfg.oauthMode === "console") {
     apiKey = await createApiKey(ctx.cfg, tok.access_token);
+    /* console 模式的唯一目的是拿 API Key。拿不到就报错，绝不能悄悄降级成订阅号 ——
+       那样用户以为手里是 Console Key，实际是另一种东西，账单与额度都对不上。 */
+    if (!apiKey) {
+      throw new Error(
+        "Console 模式需要把 OAuth 令牌兑换成 API Key，但兑换失败（上游没返回 key）。" +
+          "检查网络与出站代理，或改用 OAUTH_MODE=claude_ai 建订阅账号。"
+      );
+    }
   }
 
   const account = ctx.accounts.create({

@@ -49,6 +49,36 @@ function progress(w){
     bar
   ]);
 }
+/* 额度窗口的展示名与排序。usageCell 与「加号后自动查额度」的提示共用一份 */
+var WINDOW_LABELS = {
+  five_hour:"5 小时", seven_day:"7 天", seven_day_opus:"7 天 Opus",
+  seven_day_sonnet:"7 天 Sonnet", seven_day_overage_included:"7 天含溢出",
+  seven_day_oauth_apps:"7 天 OAuth 应用", overage:"溢出额度"
+};
+var WINDOW_ORDER = ["five_hour","seven_day","seven_day_opus","seven_day_sonnet",
+  "seven_day_overage_included","seven_day_oauth_apps","overage"];
+function windowLabel(k){ return WINDOW_LABELS[k] || (k.indexOf("dim:")===0 ? k.slice(4) : k); }
+function sortWindows(keys){
+  return keys.slice().sort(function(x,y){
+    var ix=WINDOW_ORDER.indexOf(x), iy=WINDOW_ORDER.indexOf(y);
+    if(ix===-1) ix=99; if(iy===-1) iy=99;
+    return ix-iy || (x<y?-1:1);
+  });
+}
+/** 把一次用量快照压成一行短提示，用于 toast */
+function usageSummary(u){
+  if(!u) return null;
+  if(!u.ok) return { text:"额度查询失败："+(u.error||"未知原因"), type:"warning" };
+  var w = u.windows || {};
+  var keys = sortWindows(Object.keys(w));
+  if(!keys.length) return { text:"已查到额度，但没有可用窗口", type:"info" };
+  var parts = keys.slice(0,3).map(function(k){
+    var o = w[k]||{};
+    var pct = (o.utilization===null||o.utilization===undefined) ? "—" : (Math.round(o.utilization*1000)/10+"%");
+    return windowLabel(k)+" "+pct;
+  });
+  return { text:"额度："+parts.join(" · "), type:"info" };
+}
 function usageCell(a){
   var u = a.usage || { windows:{} };
   var keys = Object.keys(u.windows||{});
@@ -56,17 +86,9 @@ function usageCell(a){
     var msg = u.error ? "查询失败" : (u.source==="headers" ? "等待响应头" : "无数据");
     return h("span",{class:"muted tiny",text:msg});
   }
-  var order = ["five_hour","seven_day","seven_day_opus","seven_day_sonnet","seven_day_overage_included","overage"];
-  keys.sort(function(x,y){
-    var ix=order.indexOf(x), iy=order.indexOf(y);
-    if(ix===-1) ix=99; if(iy===-1) iy=99;
-    return ix-iy || (x<y?-1:1);
-  });
   var box = h("div",{class:"cg-stack",style:{gap:"6px"}});
-  keys.forEach(function(k){
-    var w = u.windows[k]||{};
-    var label = k.indexOf("dim:")===0 ? k.slice(4) : k;
-    box.appendChild(h("div",{},[ h("div",{class:"tiny muted",text:label}), progress(w) ]));
+  sortWindows(keys).forEach(function(k){
+    box.appendChild(h("div",{},[ h("div",{class:"tiny muted",text:windowLabel(k)}), progress(u.windows[k]||{}) ]));
   });
   return box;
 }
@@ -336,8 +358,12 @@ function openAddAccount(){
         if(!started) return startAuth();
         var code = codeInput.value.trim();
         if(!code){ CG.toast("先把授权码粘进来","warning"); return false; }
+        /* 服务端建完号会顺手查一次额度，最长 8 秒，先给个提示免得像卡住了 */
+        CG.toast("正在登录并查询额度…","info",8000);
         return CG.api("oauth.finish",{ state:started.state, code:code }).then(function(acc){
           CG.toast("已添加「"+((acc && acc.label)||"账号")+"」","success");
+          var sum = usageSummary(acc && acc.usage);
+          if(sum) CG.toast(sum.text, sum.type, 7000);
           CG.refresh();
         });
       }
