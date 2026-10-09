@@ -88,7 +88,15 @@ function usageCell(a){
   }
   var box = h("div",{class:"cg-stack",style:{gap:"6px"}});
   sortWindows(keys).forEach(function(k){
-    box.appendChild(h("div",{},[ h("div",{class:"tiny muted",text:windowLabel(k)}), progress(u.windows[k]||{}) ]));
+    var w = u.windows[k]||{};
+    /* 标题行：窗口名（+ scoped 行的标签），服务端挑的头条行加个「当前」 */
+    var title = windowLabel(k) + (w.scopeLabel ? " · " + w.scopeLabel : "");
+    var head = h("div",{class:"tiny muted",style:{display:"flex",gap:"6px",alignItems:"center"}});
+    head.appendChild(h("span",{text:title}));
+    if(w.isActive){
+      head.appendChild(h("span",{class:"el-tag el-tag--success el-tag--small",style:{transform:"scale(.85)",transformOrigin:"left center"},text:"当前"}));
+    }
+    box.appendChild(h("div",{},[ head, progress(w) ]));
   });
   return box;
 }

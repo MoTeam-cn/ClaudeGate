@@ -23,6 +23,24 @@ function numOrNull(v: unknown): number | null {
   return null;
 }
 
+/**
+ * 从 scope 里取展示标签。
+ * 二进制 schema 里 scope 是 { model: { display_name }, surface: { display_name } }，
+ * 老形状（或别的实现）可能直接给 label —— 都认。
+ */
+function scopeLabelOf(scope: Record<string, unknown> | null): string | null {
+  if (!scope) return null;
+  if (typeof scope.label === "string" && scope.label) return scope.label;
+  for (const key of ["model", "surface"]) {
+    const sub = scope[key];
+    if (sub && typeof sub === "object") {
+      const dn = (sub as Record<string, unknown>).display_name;
+      if (typeof dn === "string" && dn) return dn;
+    }
+  }
+  return null;
+}
+
 /** resets_at 可能是 unix 秒、unix 毫秒，或 ISO 字符串 */
 function resetOrNull(v: unknown): number | null {
   const n = numOrNull(v);
@@ -52,9 +70,10 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
 
   if (rl) {
     for (const key of Object.keys(rl)) {
-      if (key === "extra_usage") continue;
+      /* extra_usage 与 limits 不是窗口本身：前者是溢出额度对象，后者是新形状的数组 */
+      if (key === "extra_usage" || key === "limits") continue;
       const w = rl[key];
-      if (!w || typeof w !== "object") continue;
+      if (!w || typeof w !== "object" || Array.isArray(w)) continue;
       const o = w as Record<string, unknown>;
       windows[key] = {
         utilization: numOrNull(o.utilization),
@@ -64,16 +83,19 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
   }
 
   /* ---- 新形状：limits[] 是权威数组。
-     二进制里的注释（原文引用）：
-       "The server's usage rows (the usage endpoint's limits[]), as sent: which meters
-        apply, their scope, labels, severity and order are the server's"
-       "The server's meter kind, e.g. 'session', 'weekly_all' or 'weekly_scoped'"
-       "The server's row group, e.g. 'session' or 'weekly'"
-       "Share of the window used, 0-100."
-       "ISO 8601 timestamp when the window resets"
-       "The server's reading of the row for a meter's colour, e.g. 'normal', 'warning' or 'critical'"
-     所以 utilization 是百分数，要除以 100 存成小数，跟老形状对齐。 ---- */
-  const limits = Array.isArray(d.limits) ? d.limits : [];
+     字段名从二进制里的 Zod schema 抠出来（原文引用）：
+       limits: array({ kind, group, percent, resets_at, scope, severity, is_active })
+     · 百分比叫 **percent**（0-100），不叫 utilization —— 之前就是这里读错了，
+       于是 utilization 恒为 null，面板上「有窗口但没数字」。
+     · resets_at 是 ISO 8601 字符串，不是 unix 秒。
+     · scope 是 { model: { display_name }, surface: { display_name } }，不是 { label }。
+     · is_active 是服务端挑的头条行。
+     有的形状把整个数组套在 rate_limits 下面，两种都认。 ---- */
+  const limits = Array.isArray(d.limits)
+    ? d.limits
+    : rl && Array.isArray(rl.limits)
+      ? rl.limits
+      : [];
   for (const item of limits) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
@@ -85,20 +107,21 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
       null;
     if (!name) continue;
 
-    const rawUtil = numOrNull(o.utilization);
+    /* 百分比：新形状是 percent，老形状是 utilization。percent 可能是 0，所以用 ?? 而不是 || */
+    const rawUtil = numOrNull(o.percent ?? o.utilization ?? o.used_percent);
     /* 0-100 -> 0-1。老形状本身就是小数，所以只在明显超过 1 时才换算 */
     const util = rawUtil === null ? null : rawUtil > 1.5 ? rawUtil / 100 : rawUtil;
 
     const prev = windows[name] ?? { utilization: null, resetsAt: null };
     const sev = typeof o.severity === "string" ? o.severity : (typeof o.status === "string" ? o.status : undefined);
     const scope = o.scope && typeof o.scope === "object" ? (o.scope as Record<string, unknown>) : null;
-    const scopeLabel = scope ? (typeof scope.label === "string" ? scope.label : null) : null;
 
     windows[name] = {
       utilization: util ?? prev.utilization,
-      resetsAt: resetOrNull(o.resetsAt ?? o.resets_at) ?? prev.resetsAt,
+      resetsAt: resetOrNull(o.resets_at ?? o.resetsAt) ?? prev.resetsAt,
       status: sev ?? prev.status,
-      ...(scopeLabel ? { scopeLabel } : {})
+      ...(scopeLabelOf(scope) ? { scopeLabel: scopeLabelOf(scope) as string } : {}),
+      ...(o.is_active === true ? { isActive: true } : {})
     };
   }
 

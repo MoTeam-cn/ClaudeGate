@@ -138,6 +138,46 @@ const u3 = normalizeOauthUsage({ rate_limits_available: false, rate_limits: null
 eq("无用量接口时不报错", u3.ok, true);
 eq("无窗口", Object.keys(u3.windows).length, 0);
 
+/* ---- 当前真实形状：字段名从二进制 Zod schema 抠出来的 ----
+   limits: array({ kind, group, percent, resets_at, scope, severity, is_active })
+   踩过的坑：百分比叫 percent 不叫 utilization，读错了就恒为 null，
+   面板上「有窗口但没数字」就是这个原因。 */
+const realPayload = {
+  rate_limits: {
+    limits: [
+      { kind: "session", group: "session", percent: 42.5,
+        resets_at: "2026-10-09T15:59:59Z", severity: "normal", is_active: true },
+      { kind: "weekly_all", group: "weekly", percent: 13,
+        resets_at: "2026-10-13T04:39:59Z", severity: "normal" },
+      { kind: "weekly_scoped", group: "weekly", percent: 7.5,
+        resets_at: "2026-10-13T04:39:59Z", severity: "warning",
+        scope: { model: { display_name: "Opus 5" } } }
+    ]
+  }
+};
+const ur = normalizeOauthUsage(realPayload);
+eq("嵌套在 rate_limits.limits 下也认", Object.keys(ur.windows).length, 3);
+eq("percent 当成百分比读（42.5 -> 0.425）", ur.windows.session?.utilization, 0.425);
+eq("整数百分比也对", ur.windows.weekly_all?.utilization, 0.13);
+eq("scoped 行也对", ur.windows.weekly_scoped?.utilization, 0.075);
+eq("severity 进 status", ur.windows.session?.status, "normal");
+eq("warning 也带进来", ur.windows.weekly_scoped?.status, "warning");
+eq("ISO resets_at 解析成秒", ur.windows.session?.resetsAt, Math.floor(Date.parse("2026-10-09T15:59:59Z") / 1000));
+eq("scope.model.display_name 当标签", ur.windows.weekly_scoped?.scopeLabel, "Opus 5");
+eq("is_active 标出头条行", ur.windows.session?.isActive, true);
+eq("没标的就不是头条", ur.windows.weekly_all?.isActive, undefined);
+
+/* percent 是 0 的时候不能被当成「没读到」 */
+const uz = normalizeOauthUsage({ limits: [{ kind: "session", percent: 0, severity: "normal" }] });
+eq("percent=0 要保留成 0，不能变 null", uz.windows.session?.utilization, 0);
+
+/* 顶层 limits 与嵌套两种位置都认；老字段名 utilization 也还认 */
+const uTop = normalizeOauthUsage({ limits: [{ kind: "weekly_all", percent: 55 }] });
+eq("顶层 limits 也认", uTop.windows.weekly_all?.utilization, 0.55);
+const uOld = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 0.33 }] });
+eq("老的 utilization 仍然认", uOld.windows.session?.utilization, 0.33);
+
+
 /* ============ C. 响应头观测 ============ */
 console.log("\n=== C. 响应头观测 ===");
 

@@ -215,3 +215,19 @@ node:sqlite 是同步 API，会阻塞事件循环。运行日志与 API Key 用�
 - 曾经写成 `reqId`/`ip`/`keyName`/`tokensIn`/`blocked`，五个全对不上，整片列渲染成 `-`。
 - 正确：`id`/`clientIp`/`apiKeyName`/`promptTokens`/`completionTokens`/`outcome`。
 - 面板测试里有反向断言钉住这件事。
+
+## 用量字段名（2026-10-09 修正）
+
+从二进制里的 Zod schema 抠出来的权威形状：
+
+```js
+rate_limits: { limits: [{ kind, group, percent, resets_at, scope, severity, is_active }] }
+```
+
+- 百分比字段叫 **`percent`**（0-100），**不叫 `utilization`**。读错就恒为 null，
+  面板表现为「有窗口但没数字」。老的 `utilization` 仍然兼容。
+- `resets_at` 是 **ISO 8601 字符串**，不是 unix 秒。
+- `scope` 是 `{ model: { display_name }, surface: { display_name } }`，不是 `{ label }`。
+- `is_active` 是服务端挑的头条行，面板上标「当前」。
+- `kind` 是行名（`session` / `weekly_all` / `weekly_scoped`），`group` 是分组（`session` / `weekly`）。
+- 数组可能在顶层 `limits`，也可能嵌在 `rate_limits.limits` 下，两种都认。

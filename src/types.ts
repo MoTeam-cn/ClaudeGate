@@ -355,6 +355,8 @@ export interface UsageWindow {
   status?: string;
   /** limits[] 里带 scope 的行，服务端给的展示标签（模型名或界面名） */
   scopeLabel?: string;
+  /** 服务端挑出来的「头条」行 —— 单值指示器显示的就是它 */
+  isActive?: boolean;
 }
 
 export interface UsageSnapshot {

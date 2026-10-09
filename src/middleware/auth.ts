@@ -98,8 +98,7 @@ export function rejectGuard(res: ServerResponse, isOpenai: boolean, missing: str
    * 缺的具体头仍然记进请求日志的「说明」列（server.ts 写进 tracker.blockDetail），
    * 要排查去面板看，不占用户眼前的版面。
    */
-  const msg = "识别到您使用的不是 Claude Code 客户端。\n" +
-    "本网关仅接受 Claude Code 官方客户端，请更换后重试。";
+  const msg = "识别到您使用的不是 Claude Code 客户端，本网关仅接受 Claude Code 官方客户端，请更换后重试。";
   void missing;
   if (isOpenai) openaiError(res, 403, msg, "permission_error", "header_guard_rejected");
   else anthropicError(res, 403, msg, "permission_error");
