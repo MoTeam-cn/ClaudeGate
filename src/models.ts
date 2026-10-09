@@ -50,7 +50,9 @@ export function checkModelAllowed(
   }
   if (ctx.modelCatalog.accepts(model)) return { ok: true };
 
-  const ids = ctx.modelCatalog.get().entries.map((e) => e.id);
+  const ids = ctx.modelCatalog.get().entries
+    .filter((e) => !ctx.modelCatalog.isHidden(e.id))
+    .map((e) => e.id);
   const sample = ids.slice(0, 8).join(", ");
   return {
     ok: false,
@@ -66,7 +68,9 @@ export function catalogStatus(ctx: GatewayContext): Record<string, unknown> {
   const s = ctx.modelCatalog.get();
   return {
     source: s.source,
-    count: s.entries.length,
+    /* count 是「对外」的条数，total 才是目录里一共多少个 */
+    count: s.entries.filter((e) => !ctx.modelCatalog.isHidden(e.id)).length,
+    total: s.entries.length,
     version: s.version,
     fetchedAt: s.fetchedAt,
     error: s.error,
@@ -74,6 +78,34 @@ export function catalogStatus(ctx: GatewayContext): Record<string, unknown> {
     url: ctx.cfg.modelCatalogUrl,
     validation: ctx.cfg.modelValidation,
     ttlMs: ctx.cfg.modelCatalogTtlMs,
-    models: s.entries
+    envDisabled: ctx.cfg.modelDisabled,
+    /* 全部模型 + 是否被隐藏，面板用它渲染勾选框 */
+    models: s.entries.map((e) => ({
+      id: e.id,
+      label: e.label,
+      family: e.family,
+      firstParty: e.firstParty,
+      hidden: ctx.modelCatalog.isHidden(e.id)
+    }))
   };
+}
+
+/**
+ * 把「部署级 MODEL_DISABLED + 面板里勾掉的」合并应用下去。
+ * 两边取并集：env 是底座（改不了），面板是运行时开关。
+ */
+export function applyModelDisabled(ctx: GatewayContext): void {
+  const fromPanel = parseDisabledSetting(ctx.settings.get("modelDisabled", "[]"));
+  const merged = [...new Set([...ctx.cfg.modelDisabled, ...fromPanel])];
+  ctx.modelCatalog.setDisabled(merged);
+}
+
+/** 面板存的是 JSON 数组；存坏了就当空，不能因为一个设置项把清单全清空 */
+export function parseDisabledSetting(raw: string | undefined): string[] {
+  try {
+    const v = JSON.parse(String(raw ?? "[]")) as unknown;
+    return Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }

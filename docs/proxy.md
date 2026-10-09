@@ -100,3 +100,24 @@ agent.createConnection = fn                 // 必须在实例上赋值
 |---|---|
 | `IP_CHECK` | `block`（默认）/ `warn` / `off` |
 | `IP_CHECK_URL` | IP 回显服务，默认 `https://ipinfo.io/json` |
+
+## 出口自检读到了什么
+
+面板「设置 → 出口自检」第一行会**亮出网关实际解析到的代理**，例如
+`socks5://user:***@10.0.0.2:7890`；没配就是「（未配置）」加黄色。
+
+这一行是排查的关键。之前只说「没有配置出站代理」，不说它读到了什么，
+只能干瞪眼 —— 最常见的原因是**宿主机的环境变量没传进容器**：
+
+```bash
+# Docker 不会自动转发宿主机的环境变量，必须显式给
+docker run -e UPSTREAM_PROXY=socks5://host:1080 ...
+# 或者写进 env_file
+```
+
+认这些变量名（按顺序取第一个非空的）：
+`UPSTREAM_PROXY`、`ALL_PROXY` / `all_proxy`、`HTTPS_PROXY` / `https_proxy`、
+`HTTP_PROXY` / `http_proxy`、`SOCKS5_PROXY` / `socks5_proxy`、`SOCKS_PROXY` / `socks_proxy`。
+
+没配代理时自检的结论会明说「这次是直连出去的，出口就是 x.x.x.x」，
+而不是含糊地跳过。

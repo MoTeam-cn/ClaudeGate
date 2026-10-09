@@ -100,6 +100,32 @@ ok("守卫不再有会被静默忽略的 warn 选项", !viewsSrc.includes('value
 ok("面板有 key.reset 动作", src("api.ts").includes('case "key.reset"'));
 ok("Key 行有重置按钮", viewsSrc.includes("重置密钥"));
 ok("store 暴露 resetSecret", src("../store/apikeys.ts").includes("resetSecret"));
+/*
+ * 请求日志的列名必须跟 store/logs.ts 的 queryRequests 返回一致。
+ * 之前这里写的是 reqId / ip / keyName / tokensIn / blocked，五个全对不上，
+ * 结果整片列都显示 "-" —— 所以拿后端返回的字段名反过来钉住前端。
+ */
+const logsSrc = src("../store/logs.ts");
+const logsReturn = logsSrc.slice(logsSrc.indexOf("rows: rows.map"), logsSrc.indexOf("total", logsSrc.indexOf("rows: rows.map")));
+const retFields = [...logsReturn.matchAll(/^\s{8}([a-zA-Z]+):/gm)].map((m) => m[1]);
+ok("取到了后端返回的字段名", retFields.length > 15, "共 " + retFields.length + " 个");
+/* 只看请求日志那一段的列定义，别把整个文件里所有 r.* 都算进来 */
+const reqlogStart = viewsSrc.indexOf('label:"req-id"');
+/* 一直切到列数组收尾，这样「说明」列自己的 render 也在里面 */
+const reqlogBlock = viewsSrc.slice(reqlogStart, viewsSrc.indexOf("];", reqlogStart));
+/* 这些名字后端根本没有，之前就是它们把整片列渲染成 "-" */
+const BAD_ROW_FIELDS = ["r.reqId", "r.keyName", "r.tokensIn", "r.tokensOut", "r.blocked", "text:r.ip||"];
+const stillBad = BAD_ROW_FIELDS.filter((f) => reqlogBlock.includes(f));
+ok("请求日志列不再引用后端没有的字段", stillBad.length === 0, stillBad.join(", "));
+ok("来源列用 clientIp", reqlogBlock.includes("text:r.clientIp||"));
+ok("Key 列用 apiKeyName", reqlogBlock.includes("r.apiKeyName||"));
+ok("token 列用 promptTokens", reqlogBlock.includes("CG.fmtNum(r.promptTokens)"));
+ok("状态列读 outcome", reqlogBlock.includes('r.outcome==="blocked"'));
+ok("说明列读 errorMessage/blockDetail", reqlogBlock.includes("r.errorMessage || r.blockDetail"));
+ok("请求日志有路径列", reqlogBlock.includes('label:"路径"'));
+ok("模型卡片有保存勾选", viewsSrc.includes("保存勾选"));
+ok("账号行有刷新信息按钮", viewsSrc.includes('text:"刷新信息"'));
+ok("出口卡片显示解析出的代理", viewsSrc.includes('line("出站代理"'))
 
 /* ================= 内联脚本可解析 ================= */
 console.log("\n=== B. 内联脚本 ===");

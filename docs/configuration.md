@@ -167,3 +167,24 @@ https://downloads.claude.ai/model-catalog/v1/catalog.json
 
 校验读的是**当前快照**：目录刷新后，新出现的模型立刻可用，消失的立刻被拒。
 想完全关掉就设 `MODEL_VALIDATION=off`。
+
+### 控制对外返回哪些模型
+
+目录里有的模型不一定每个账号都能用（比如 Fable / Mythos）。两处可以控制：
+
+**面板**：「设置 → 模型目录」里有勾选清单，取消勾选即隐藏。保存后立刻生效。
+
+**环境变量**（部署级底座，面板改不动）：
+
+```bash
+MODEL_DISABLED=claude-fable-5,claude-fable-5-1,claude-mythos-5,claude-mythos-5-1
+```
+
+两边**取并集**：env 里钉死的那些在面板上显示为禁用框。
+
+隐藏的效果是两件事，缺一不可：
+
+1. 不出现在 `/v1/models` 里
+2. 消息接口也**拒收**（400 `model_not_found`）—— 只藏不拒的话，客户端还能硬发过去
+
+匹配跟校验同一套规则：家族 id、规范 id、日期后缀、`[1m]` 后缀都算同一个模型。

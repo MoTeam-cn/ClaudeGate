@@ -6,7 +6,7 @@ import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
 import { fetchOauthProfile, profileLabel } from "../pool/profile.ts";
 import { checkEgress } from "../net/ipcheck.ts";
-import { catalogStatus } from "../models.ts";
+import { catalogStatus, applyModelDisabled, parseDisabledSetting } from "../models.ts";
 import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery, UsageSnapshot } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -376,6 +376,83 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         const st = await ctx.modelCatalog.refresh();
         ctx.log.info("panel: 模型目录刷新 " + st.entries.length + " 个 source=" + st.source);
         sendJson(res, 200, { ok: true, data: catalogStatus(ctx) });
+        return;
+      }
+
+      /* 面板里勾掉/勾上哪些模型。存进 settings，然后立刻重新应用一遍隐藏清单 */
+      case "models.disable": {
+        const ids = Array.isArray(body.ids) ? body.ids.map((x) => String(x)).filter(Boolean) : [];
+        settings.set("modelDisabled", JSON.stringify(ids));
+        applyModelDisabled(ctx);
+        const st = catalogStatus(ctx);
+        ctx.log.info("panel: 模型隐藏清单更新为 " + ids.length + " 项，对外 " + st.count + " 个模型");
+        sendJson(res, 200, { ok: true, data: st });
+        return;
+      }
+
+      /*
+       * 刷新账号信息：拉档案（真名 / 邮箱 / 套餐）+ 查一次额度。
+       * 跟「查用量」的区别是这里**强制**拉档案 —— 老号的备注名是建号时瞎填的默认值，
+       * 那些值不一定长得像占位符，靠 refreshUsage 里的启发式补不全，得手动刷一次。
+       */
+      case "account.refresh": {
+        const one = str(body.id).trim();
+        const all = accounts.list();
+        const targets = one ? all.filter((x) => x.id === one) : all;
+        if (one && !targets.length) {
+          sendJson(res, 404, { error: { message: "账号不存在", code: "not_found" } });
+          return;
+        }
+        const out: Array<Record<string, unknown>> = [];
+        for (const acc of targets) {
+          let name: string | null = null;
+          let email: string | null = null;
+          let plan: string | null = null;
+          let profileError: string | null = null;
+          if (acc.kind === "oauth") {
+            if (!acc.accessToken) {
+              profileError = "这个号还没有 access_token（先去查一次用量让它刷新）";
+            } else {
+              const prof = await fetchOauthProfile(cfg, acc.accessToken, 10000);
+              if (!prof) {
+                profileError = "档案接口没返回可用数据";
+              } else {
+                name = profileLabel(prof);
+                email = prof.email;
+                plan = prof.planDisplayName ?? prof.subscriptionType;
+                const patch: Record<string, unknown> = {};
+                if (name) patch.label = name;
+                if (email) patch.email = email;
+                if (Object.keys(patch).length) accounts.update(acc.id, patch as never);
+              }
+            }
+          } else {
+            profileError = "Console Key 没有档案接口，只能查额度";
+          }
+          const fresh = accounts.get(acc.id) ?? acc;
+          let usageOk: boolean | null = null;
+          let usageError: string | null = null;
+          try {
+            const r = await refreshUsage(fresh, 15000);
+            usageOk = r.snap.ok;
+            usageError = r.snap.ok ? null : (r.snap.error ?? "查询失败");
+          } catch (e) {
+            usageError = e instanceof Error ? e.message : String(e);
+          }
+          const after = accounts.get(acc.id) ?? fresh;
+          out.push({
+            id: acc.id,
+            before: acc.label,
+            label: after.label,
+            email: after.email,
+            plan: after.usage?.subscriptionType ?? plan,
+            profileError,
+            usageOk,
+            usageError
+          });
+        }
+        ctx.log.info("panel: 刷新账号信息 " + out.length + " 个");
+        sendJson(res, 200, { ok: true, data: { refreshed: out.length, results: out } });
         return;
       }
 

@@ -276,6 +276,65 @@ const laxRes = await request(laxPort, "/v1/messages", {
 eq("关掉校验后放行", laxRes.status, 200);
 await lax.close();
 
+/* ================= F. 隐藏清单 ================= */
+console.log("\n=== F. 隐藏清单 ===");
+const admin = { "x-admin-token": "cat-admin" };
+/* /v1/models 是网关接口，要的是网关 Key；面板令牌只对 /panel/api 有用 */
+const listNow = async () => (await request(port, "/v1/models", { headers: ccHeaders() })).text;
+
+const beforeHide = await listNow();
+ok("隐藏前有 Fable", beforeHide.includes("claude-fable-5"));
+ok("隐藏前有 Mythos", beforeHide.includes("claude-mythos-5"));
+
+const HIDDEN = ["claude-fable-5", "claude-fable-5-1", "claude-mythos-5", "claude-mythos-5-1"];
+const hideRes = await request(port, "/panel/api?action=models.disable", {
+  headers: admin, body: { ids: HIDDEN } });
+eq("隐藏接口 200", hideRes.status, 200);
+const hideData = (hideRes.json as Record<string, unknown>).data as Record<string, unknown>;
+eq("对外条数少了 4 个", hideData.count, MODEL_CATALOG.length + 1 - HIDDEN.length);
+eq("全量条数没变", hideData.total, MODEL_CATALOG.length + 1);
+ok("状态里标了隐藏", (hideData.models as Array<Record<string, unknown>>).some((m) => m.id === "claude-fable-5" && m.hidden === true));
+
+const afterHide = await listNow();
+ok("隐藏后没有 Fable", !afterHide.includes("claude-fable-5"));
+ok("隐藏后没有 Mythos", !afterHide.includes("claude-mythos-5"));
+ok("别的模型还在", afterHide.includes("claude-opus-5"));
+
+/* 隐藏不只是「不列出来」，消息接口也得拒 —— 否则客户端还能硬发过去 */
+const hidMsg = await request(port, "/v1/messages", { headers: ccHeaders(), body: { ...MSG, model: "claude-fable-5" } });
+eq("隐藏的模型消息接口也拒", hidMsg.status, 400);
+ok("报的是 model_not_found", hidMsg.text.includes("model_not_found"), hidMsg.text.slice(0, 140));
+const okMsg = await request(port, "/v1/messages", { headers: ccHeaders(), body: { ...MSG, model: "claude-opus-5" } });
+eq("没隐藏的照常", okMsg.status, 200);
+
+/* 日期后缀写法也一起挡住 */
+const hidDated = await request(port, "/v1/messages", { headers: ccHeaders(), body: { ...MSG, model: "claude-mythos-5-1" } });
+eq("隐藏的另一个也拒", hidDated.status, 400);
+
+/* 取消隐藏 */
+await request(port, "/panel/api?action=models.disable", { headers: admin, body: { ids: [] } });
+const restored = await listNow();
+ok("取消隐藏后 Fable 回来了", restored.includes("claude-fable-5"));
+
+/* 存坏了不能把清单清空 */
+const broken = await request(port, "/panel/api?action=models.disable", { headers: admin, body: { ids: "不是数组" } });
+eq("非法入参不炸", broken.status, 200);
+ok("非法入参后清单还在", (await listNow()).includes("claude-opus-5"));
+
+/* 部署级 MODEL_DISABLED 是底座，面板改不动它 */
+const lockedGw = createGateway({
+  PORT: "0", HOST: "127.0.0.1", DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "cg-cat-lock-")), SECRET: "lock",
+  UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
+  MODEL_CATALOG_URL: "http://127.0.0.1:" + catPort + "/catalog.json",
+  MODEL_DISABLED: "claude-fable-5, claude-mythos-5",
+  GUARD_MODE: "strict", STEGO_MODE: "block", ADMIN_TOKEN: "lock-admin", LOG_LEVEL: "error", TRANSPORT: "https"
+});
+await lockedGw.modelCatalog.refresh();
+eq("目录条数不受隐藏影响", lockedGw.modelCatalog.get().entries.length, MODEL_CATALOG.length + 1);
+ok("env 隐藏的认不出来", !lockedGw.modelCatalog.accepts("claude-fable-5"));
+ok("env 没提的照旧", lockedGw.modelCatalog.accepts("claude-opus-5"));
+await lockedGw.close();
+
 /* ================= 收尾 ================= */
 clearTimeout(watchdog);
 await gw.close();

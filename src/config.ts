@@ -85,7 +85,11 @@ export function loadConfig(env: Env): Config {
     env.HTTPS_PROXY,
     env.https_proxy,
     env.HTTP_PROXY,
-    env.http_proxy
+    env.http_proxy,
+    env.SOCKS5_PROXY,
+    env.socks5_proxy,
+    env.SOCKS_PROXY,
+    env.socks_proxy
   ]),
     transport: (TRANSPORT_MODES as readonly string[]).includes(String(env.TRANSPORT ?? "auto").toLowerCase())
       ? (String(env.TRANSPORT ?? "auto").toLowerCase() as Config["transport"])
@@ -134,6 +138,11 @@ export function loadConfig(env: Env): Config {
     modelCatalogUrl: env.MODEL_CATALOG_URL ?? PROD.MODEL_CATALOG_URL,
     modelCatalogTtlMs: Number(env.MODEL_CATALOG_TTL_MS ?? 6 * 3600 * 1000),
     modelValidation: String(env.MODEL_VALIDATION ?? "strict").toLowerCase() === "off" ? "off" : "strict",
+    /* 逗号/空格/换行分隔都认。部署级底座，跟面板里勾掉的取并集 */
+    modelDisabled: String(env.MODEL_DISABLED ?? "")
+      .split(/[,\s]+/)
+      .map((x) => x.trim())
+      .filter(Boolean),
     /* 默认 block：代理没生效就直接不让起。设 IP_CHECK=off 关掉 */
     ipCheckMode: ((): "off" | "warn" | "block" => {
       const raw = String(env.IP_CHECK ?? "block").trim().toLowerCase();

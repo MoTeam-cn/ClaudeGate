@@ -11,6 +11,7 @@ import { createSettingsStore } from "./store/settings.ts";
 import { createScheduler } from "./pool/scheduler.ts";
 import { createCredentialManager } from "./pool/credentials.ts";
 import { createModelCatalog } from "./model-catalog.ts";
+import { applyModelDisabled } from "./models.ts";
 import type { ModelCatalogHandle } from "./model-catalog.ts";
 import { createQuotaGuard } from "./middleware/quota.ts";
 import { createAgent, createHttpAgent } from "./upstream.ts";
@@ -175,7 +176,6 @@ export function createGateway(env: Record<string, string | undefined> = process.
   const scheduler = createScheduler(accounts, log);
   const credentials = createCredentialManager(cfg, log, accounts);
   const quota = createQuotaGuard(keys);
-  const modelCatalog = createModelCatalog(cfg, log);
 
   try {
     cfg.proxy = parseProxySpec(cfg.upstreamProxy);
@@ -188,7 +188,13 @@ export function createGateway(env: Record<string, string | undefined> = process.
   cfg.agent = createAgent(cfg);
   cfg.agentHttp = createHttpAgent(cfg);
 
+  /* 必须在 cfg.proxy / cfg.agent 就绪之后建 —— 它自己要出网拉目录，
+     早建一步就会绕过代理直连，正好踩中这个项目最想避免的坑 */
+  const modelCatalog = createModelCatalog(cfg, log);
+
   const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota, modelCatalog };
+  /* 隐藏清单：部署级 env + 面板里勾掉的，取并集 */
+  applyModelDisabled(ctx);
 
   const admin = createAdminRoutes(ctx);
   const auth = createAuthRoutes(ctx);

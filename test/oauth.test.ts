@@ -302,6 +302,65 @@ console.log("\n=== H. 用量响应没有任何可识别字段要报错，不能�
   };
 }
 
+/* ================= I. 刷新账号信息 ================= */
+console.log("\n=== I. 刷新账号信息 ===");
+{
+  const gw = boot();
+  const acc = await startAndFinish(gw);
+  const port = (gw.server.address() as AddressInfo).port;
+  const id = String(acc.id ?? "");
+  ok("拿到账号 id", !!id, id);
+
+  /* 模拟老库里的样子：备注名是建号时瞎填的默认值。
+     这种值不一定匹配 isPlaceholderLabel 的启发式，所以得靠手动刷新补真名 */
+  gw.accounts.update(id, { label: "账号 7", email: null } as never);
+
+  const before = profileCalls;
+  const res = await request(port, "/panel/api?action=account.refresh&key=oauth-admin", { body: { id } });
+  eq("刷新接口 200", res.status, 200);
+  const data = (res.json as { data?: { refreshed?: number; results?: Array<Record<string, unknown>> } }).data ?? {};
+  eq("刷了一个", data.refreshed, 1);
+  const one = (data.results ?? [])[0] ?? {};
+  eq("刷新前是默认名", one.before, "账号 7");
+  eq("刷新后换成真名", one.label, "Quota User");
+  eq("邮箱也带回来了", one.email, "quota@example.com");
+  ok("确实打了档案接口", profileCalls > before, "次数 " + before + " -> " + profileCalls);
+  eq("没有档案错误", one.profileError, null);
+  eq("额度也查了", one.usageOk, true);
+
+  /* 关键：得落库，不能只回给前端 */
+  const list = await request(port, "/panel/api?action=accounts&key=oauth-admin");
+  const rows = ((list.json as { data?: Array<Record<string, unknown>> }).data) ?? [];
+  eq("库里也是真名", rows[0]?.label, "Quota User");
+  eq("库里也有邮箱", rows[0]?.email, "quota@example.com");
+
+  /* 不带 id = 刷全部 */
+  const allRes = await request(port, "/panel/api?action=account.refresh&key=oauth-admin", { body: {} });
+  eq("全部刷新 200", allRes.status, 200);
+  eq("刷了全部 1 个", ((allRes.json as { data?: { refreshed?: number } }).data ?? {}).refreshed, 1);
+
+  const miss = await request(port, "/panel/api?action=account.refresh&key=oauth-admin", { body: { id: "acc_nope" } });
+  eq("不存在的 id 404", miss.status, 404);
+  await gw.close();
+}
+
+/* 档案接口挂了也要说清楚，不能装作刷成功 */
+console.log("\n=== J. 档案拉不到时的刷新 ===");
+{
+  const gw = boot();
+  const acc = await startAndFinish(gw);
+  const port = (gw.server.address() as AddressInfo).port;
+  const id = String(acc.id ?? "");
+  gw.accounts.update(id, { label: "账号 9" } as never);
+  profileStatus = 500;
+  const res = await request(port, "/panel/api?action=account.refresh&key=oauth-admin", { body: { id } });
+  eq("接口本身还是 200", res.status, 200);
+  const one = (((res.json as { data?: { results?: Array<Record<string, unknown>> } }).data ?? {}).results ?? [])[0] ?? {};
+  ok("如实报告档案没拿到", typeof one.profileError === "string" && String(one.profileError).length > 0, String(one.profileError));
+  eq("名字保持原样", one.label, "账号 9");
+  profileStatus = 200;
+  await gw.close();
+}
 clearTimeout(watchdog);
 upstream.close();
 for (const d of dataDirs) cleanupDir(d);

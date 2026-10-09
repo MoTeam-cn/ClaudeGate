@@ -202,3 +202,16 @@ node:sqlite 是同步 API，会阻塞事件循环。运行日志与 API Key 用�
 - 内置兜底清单与 Claude Code 2.1.293 编译进去的 seed 对齐（22 个模型）。
 - `/v1/messages` 与 `/v1/chat/completions` 校验 model，`MODEL_VALIDATION=off` 可关。
 - 面板「设置 → 模型目录」可看状态与手动重拉。
+
+## 模型隐藏清单（2026-10-09）
+
+- 面板勾选（`models.disable`，存 settings 的 `modelDisabled`）+ 部署级 `MODEL_DISABLED`，取并集。
+- 隐藏 = 不在 `/v1/models` 出现 **且** 消息接口拒收（400 `model_not_found`）。
+- `catalogStatus.count` 是**对外**条数，`total` 才是目录全量。
+
+## 请求日志字段（2026-10-09 修正）
+
+- 视图列名必须跟 `store/logs.ts` 的 `queryRequests` 返回一致。
+- 曾经写成 `reqId`/`ip`/`keyName`/`tokensIn`/`blocked`，五个全对不上，整片列渲染成 `-`。
+- 正确：`id`/`clientIp`/`apiKeyName`/`promptTokens`/`completionTokens`/`outcome`。
+- 面板测试里有反向断言钉住这件事。

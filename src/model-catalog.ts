@@ -74,6 +74,14 @@ export interface ModelCatalogHandle {
   resolve(model: string | undefined | null): CatalogEntry | null;
   /** 正在刷新？ */
   refreshing(): boolean;
+  /** 设置隐藏清单（面板里勾掉的那些）。传进来的 id 会归一后再比 */
+  setDisabled(ids: string[]): void;
+  /** 当前隐藏清单（归一后的 key） */
+  disabled(): string[];
+  /** 目录里全部模型，含被隐藏的 */
+  all(): CatalogEntry[];
+  /** 这个模型是不是被隐藏了 */
+  isHidden(id: string): boolean;
 }
 
 /** Claude Code 就是这么比的：去掉尾部 -YYYYMMDD */
@@ -146,11 +154,22 @@ export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle
   };
   /* 索引：家族 id、first_party、去日期后的形态，全部进同一个集合 */
   let accepted = new Set<string>();
+  let hidden = new Set<string>();
   let busy = false;
+
+  /** 归一成一个可比的 key：小写、去 [1m]、去日期后缀 */
+  function keyOf(v: string): string {
+    return stripDate(normalizeModelId(v));
+  }
+
+  /** 目录里没被隐藏的模型 —— 对外只认这些 */
+  function visible(): CatalogEntry[] {
+    return state.entries.filter((e) => !hidden.has(keyOf(e.id)) && !hidden.has(keyOf(e.firstParty)));
+  }
 
   function reindex(): void {
     const s = new Set<string>();
-    for (const e of state.entries) {
+    for (const e of visible()) {
       for (const v of [e.id, e.firstParty]) {
         const n = normalizeModelId(v);
         s.add(n);
@@ -257,7 +276,7 @@ export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle
     refresh: doRefresh,
     list() {
       const created = Math.floor((state.fetchedAt ?? Date.now()) / 1000);
-      return state.entries.map((e) => ({
+      return visible().map((e) => ({
         id: e.id,
         object: "model" as const,
         created,
@@ -265,6 +284,15 @@ export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle
         display_name: e.label,
         family: e.family
       }));
+    },
+    setDisabled(ids) {
+      hidden = new Set((ids ?? []).map((x) => keyOf(String(x))).filter(Boolean));
+      reindex();
+    },
+    disabled: () => [...hidden],
+    all: () => state.entries,
+    isHidden(id) {
+      return hidden.has(keyOf(id));
     },
     accepts(model) {
       const raw = String(model ?? "").trim();
@@ -285,7 +313,7 @@ export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle
       const alias = MODEL_ALIASES[n];
       if (alias) n = normalizeModelId(alias);
       const bare = stripDate(n);
-      for (const e of state.entries) {
+      for (const e of visible()) {
         for (const v of [e.id, e.firstParty]) {
           const en = normalizeModelId(v);
           if (en === n || stripDate(en) === bare) return e;

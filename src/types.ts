@@ -98,6 +98,8 @@ export interface Config {
   modelCatalogTtlMs: number;
   /** 消息接口的模型校验：strict 不在目录里就报错 / off 放行 */
   modelValidation: "strict" | "off";
+  /** 部署级隐藏清单（MODEL_DISABLED），跟面板里勾掉的取并集 */
+  modelDisabled: string[];
   /** 出口自检模式：off / warn / block */
   ipCheckMode: "off" | "warn" | "block";
   apiKeyUrl: string;

@@ -11,8 +11,13 @@
  *
  * 拿不到结论的情况（比如内网机器压根没有直连出口，不带代理那次直接失败）不算失败，
  * 只如实报告「无法判定」，不能因为查不出来就拦着不让启动。
+ *
+ * 还有一类最容易被忽略的：**压根没解析出代理**。这时候也谈不上「代理失效」，
+ * 但直连出去的后果一样严重 —— 所以结论里会点明「这次是直连出去的」，
+ * 并把该设哪些环境变量、以及「Docker 不会自动传宿主环境变量」这条写清楚。
  */
 import { requestRaw } from "./request.ts";
+import { describeProxy } from "./proxy.ts";
 import type { Config } from "../types.ts";
 
 export interface EgressProbe {
@@ -26,11 +31,19 @@ export interface EgressCheck {
   conclusive: boolean;
   /** 判定结果：true = 代理没生效 */
   proxyIgnored: boolean;
+  /** 配置里到底有没有解析出代理 */
+  proxyConfigured: boolean;
+  /** 解析出来的代理（已抹掉密码），没配就是 null */
+  proxy: string | null;
   direct: EgressProbe;
   proxied: EgressProbe;
   url: string;
   summary: string;
 }
+
+/** 该设哪个环境变量 —— 报错文案与文档共用一份 */
+export const PROXY_ENV_HINT =
+  "UPSTREAM_PROXY（也认 ALL_PROXY / HTTPS_PROXY / HTTP_PROXY / SOCKS5_PROXY）";
 
 /** 从各种 IP 回显服务的响应里抠出 IP */
 function extractIp(text: string): string | null {
@@ -77,56 +90,66 @@ async function probe(cfg: Config, url: string, noProxy: boolean, timeoutMs: numb
  */
 export async function checkEgress(cfg: Config, timeoutMs = 8000): Promise<EgressCheck> {
   const url = cfg.ipCheckUrl;
+  const proxyConfigured = !!cfg.proxy;
+  const proxy = cfg.proxy ? describeProxy(cfg.proxy) : null;
+  const base = { proxyConfigured, proxy, url };
+
   const [proxied, direct] = await Promise.all([
-    cfg.proxy ? probe(cfg, url, false, timeoutMs) : Promise.resolve<EgressProbe>({ ip: null, error: "没有配置出站代理", ms: 0 }),
+    cfg.proxy
+      ? probe(cfg, url, false, timeoutMs)
+      : Promise.resolve<EgressProbe>({ ip: null, error: "没有配置出站代理", ms: 0 }),
     probe(cfg, url, true, timeoutMs)
   ]);
 
-  if (!cfg.proxy) {
+  if (!proxyConfigured) {
     return {
+      ...base,
       conclusive: false,
       proxyIgnored: false,
       direct,
       proxied,
-      url,
-      summary: "没有配置出站代理，跳过出口自检"
+      summary:
+        "没有配置出站代理，这次是直连出去的，出口就是 " + (direct.ip ?? "（取不到）") + "。" +
+        "如果这台机器在国内，等于把真实 IP 交给上游。要配就设 " + PROXY_ENV_HINT + "；" +
+        "注意 Docker 不会自动把宿主机的环境变量传进容器，得用 -e 或 env_file。"
     };
   }
 
   /* 直连那次失败是很正常的：内网机器本来就没有直连出口。这时没有结论 */
   if (!direct.ip) {
     return {
+      ...base,
       conclusive: false,
       proxyIgnored: false,
       direct,
       proxied,
-      url,
       summary:
         "无法判定：不带代理那次拿不到出口 IP（" + (direct.error ?? "未知") + "）。" +
-        "带代理的出口是 " + (proxied.ip ?? "也拿不到（" + (proxied.error ?? "未知") + "）")
+        "带代理的出口是 " + (proxied.ip ?? "也拿不到（" + (proxied.error ?? "未知") + "）") +
+        "（配置的是 " + proxy + "）"
     };
   }
 
   if (!proxied.ip) {
     return {
+      ...base,
       conclusive: false,
       proxyIgnored: false,
       direct,
       proxied,
-      url,
-      summary: "代理那条查不到出口 IP：" + (proxied.error ?? "未知")
+      summary: "代理那条查不到出口 IP：" + (proxied.error ?? "未知") + "（配置的是 " + proxy + "）"
     };
   }
 
   const same = direct.ip === proxied.ip;
   return {
+    ...base,
     conclusive: true,
     proxyIgnored: same,
     direct,
     proxied,
-    url,
     summary: same
-      ? "代理没生效：带与不带代理的出口 IP 都是 " + proxied.ip + "，说明请求根本没走代理"
-      : "出口正常：直连 " + direct.ip + "，经代理 " + proxied.ip
+      ? "代理没生效：带与不带代理的出口 IP 都是 " + proxied.ip + "，说明请求根本没走代理（配置的是 " + proxy + "）"
+      : "出口正常：直连 " + direct.ip + "，经代理 " + proxied.ip + "（配置的是 " + proxy + "）"
   };
 }

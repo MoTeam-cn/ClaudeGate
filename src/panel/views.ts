@@ -234,6 +234,7 @@ function renderAccounts(box){
           } },
         { key:"act", label:"操作", render:function(a){
             var box2 = h("div",{class:"cg-actions"});
+            box2.appendChild(h("button",{class:"el-button el-button--small",text:"刷新信息",onclick:function(){ actRefreshAccount(a.id); }}));
             box2.appendChild(h("button",{class:"el-button el-button--small",text:"查用量",onclick:function(){ actFetchUsage(a.id); }}));
             if(a.status==="exhausted"||a.status==="error") box2.appendChild(h("button",{class:"el-button el-button--small",text:"恢复",onclick:function(){ actRevive(a.id); }}));
             box2.appendChild(h("button",{class:"el-button el-button--small",text:a.status==="disabled"?"启用":"停用",onclick:function(){ actSetStatus(a); }}));
@@ -247,6 +248,7 @@ function renderAccounts(box){
         selectable:true,
         rowId:function(a){ return a.id; },
         batchActions:[
+          { label:"全部刷新信息", run:function(){ return actRefreshAll(); } },
           { label:"批量启用", run:function(ids){ return actBatchStatus(ids, "active"); } },
           { label:"批量停用", run:function(ids){ return actBatchStatus(ids, "disabled"); } },
           { label:"批量查用量", run:function(ids){ return actBatchUsage(ids); } },
@@ -475,6 +477,28 @@ function actFetchUsageAll(){
   CG.toast("正在查询全部账号用量…","info",2000);
   CG.api("account.usage",{all:true}).then(function(){ CG.toast("用量已更新","success"); CG.refresh(); }).catch(CG.showErr);
 }
+/* 刷新账号信息：拉档案（真名/邮箱/套餐）+ 查一次额度。
+   跟「查用量」不同 —— 它会强制拉档案，把建号时瞎填的默认备注名换成真名 */
+function actRefreshAccount(id){
+  CG.toast("正在刷新账号信息…","info",1800);
+  CG.api("account.refresh",{ id:id }).then(function(r){
+    var one = (r && r.results && r.results[0]) || null;
+    if(one && one.profileError) CG.toast("档案没刷到：" + one.profileError, "warning", 4000);
+    else if(one && one.before !== one.label) CG.toast("已更新为「" + one.label + "」", "success");
+    else CG.toast("账号信息已刷新", "success");
+    CG.refresh();
+  }).catch(CG.showErr);
+}
+function actRefreshAll(){
+  CG.toast("正在刷新全部账号信息…","info",2000);
+  CG.api("account.refresh",{}).then(function(r){
+    var n = (r && r.refreshed) || 0;
+    var bad = ((r && r.results) || []).filter(function(x){ return x.profileError; }).length;
+    CG.toast("已刷新 " + n + " 个" + (bad ? "，其中 " + bad + " 个没拿到档案" : ""), bad ? "warning" : "success", 4000);
+    CG.refresh();
+  }).catch(CG.showErr);
+}
+
 function actDeleteAccount(a){
   CG.dialog({
     title:"删除账号", okText:"删除",
@@ -703,26 +727,39 @@ function renderReqLogs(box){
             b.appendChild(h("div",{class:"tiny muted",text:CG.fmtAgo(r.ts)}));
             return b;
           } },
-        { key:"reqId", label:"req-id", render:function(r){ return h("span",{class:"mono tiny",text:r.reqId||"-"}); } },
-        { key:"ip", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.ip||"-"}); } },
-        { key:"keyName", label:"Key", render:function(r){ return r.keyName||"-"; } },
+        /* 字段名必须跟 store/logs.ts 的 queryRequests 返回一致：
+           id / clientIp / apiKeyName / promptTokens / completionTokens / outcome ——
+           之前这里写的是 reqId / ip / keyName / tokensIn / tokensOut / blocked，
+           全都对不上，所以整片列都显示 "-" */
+        { key:"id", label:"req-id", render:function(r){ return h("span",{class:"mono tiny",text:r.id||"-"}); } },
+        { key:"clientIp", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.clientIp||"-"}); } },
+        { key:"apiKeyName", label:"Key", render:function(r){ return r.apiKeyName||"-"; } },
         { key:"protocol", label:"协议", sortable:true, filter:{type:"slot", el:protocol.el} },
+        { key:"path", label:"路径", render:function(r){
+            return h("span",{class:"mono tiny",text:((r.method||"")+" "+(r.path||"")).trim()||"-"});
+          } },
         { key:"model", label:"模型", render:function(r){ return h("span",{class:"mono tiny",text:r.model||"-"}); } },
         { key:"accountLabel", label:"账号", render:function(r){ return r.accountLabel||"-"; } },
         { key:"status", label:"状态", sortable:true, filter:{type:"slot", el:outcome.el}, render:function(r){
-            if(r.blocked) return tag("拦截","danger");
-            if(r.status>=400) return tag(String(r.status),"warning");
-            return tag(String(r.status||200),"success");
+            if(r.outcome==="blocked") return tag(r.blockReason||"拦截","danger");
+            /* status 为 null 说明这个请求没到上游（比如 /v1/models 是本地出的） */
+            if(r.status===null||r.status===undefined){
+              return r.outcome==="ok" ? tag("本地","info") : tag(r.outcome||"未知","warning");
+            }
+            return tag(String(r.status), r.status>=400?"warning":"success");
           } },
         { key:"durationMs", label:"耗时", sortable:true, render:function(r){ return CG.fmtDur(r.durationMs); } },
         { key:"tokens", label:"token", render:function(r){
-            return h("span",{class:"tiny",text:CG.fmtNum(r.tokensIn)+" / "+CG.fmtNum(r.tokensOut)+" / "+CG.fmtNum(r.cacheReadTokens)});
+            return h("span",{class:"tiny",text:CG.fmtNum(r.promptTokens)+" / "+CG.fmtNum(r.completionTokens)+" / "+CG.fmtNum(r.cacheReadTokens)});
           } },
-        { key:"note", label:"说明", clamp:true, render:function(r){ return h("span",{class:"tiny",text:r.note||"-"}); } }
+        { key:"note", label:"说明", clamp:true, render:function(r){
+            var t = r.errorMessage || r.blockDetail || r.blockReason || "";
+            return h("span",{class:"tiny",text:t||"-"});
+          } }
       ];
       listHost.appendChild(CG.table(cols, rows, {
         sortKey:"ts", sortDir:"desc", emptyText:"没有符合条件的请求",
-        rowClass:function(r){ return r.blocked ? "row-danger" : (r.status>=400 ? "row-warn" : ""); }
+        rowClass:function(r){ return r.outcome==="blocked" ? "row-danger" : (r.status>=400 ? "row-warn" : ""); }
       }));
       CG.clear(pageHost);
       pageHost.appendChild(CG.pager({ total:d.total||0, page:reqState.page, size:reqState.size, onChange:function(p){ reqState.page=p; load(); } }));
@@ -811,11 +848,12 @@ function modelCard(){
     var p = function(n){ return (n<10?"0":"")+n; };
     return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
   }
+
   function paint(r){
     CG.clear(out);
     var tone = r.error ? "warning" : "success";
     out.appendChild(h("div",{style:{color:"var(--el-color-"+tone+")",fontWeight:"500"},
-      text: (SOURCE[r.source]||r.source) + " · " + r.count + " 个模型" + (r.refreshing ? "（正在刷新…）" : "")}));
+      text: (SOURCE[r.source]||r.source) + " · 对外 " + r.count + " 个模型" + (r.refreshing ? "（正在刷新…）" : "")}));
     out.appendChild(line("来源", SOURCE[r.source]||r.source));
     out.appendChild(line("模型数", String(r.count)));
     out.appendChild(line("目录版本", r.version===null||r.version===undefined ? "（无）" : String(r.version)));
@@ -826,17 +864,49 @@ function modelCard(){
     out.appendChild(h("div",{class:"tiny muted",style:{marginTop:"8px",lineHeight:"1.7"},
       text:"清单地址：" + r.url}));
 
+    /* 勾选清单。取消勾选 = 从 /v1/models 里拿掉，并且消息接口也拒收 */
     CG.clear(listHost);
-    if(r.models && r.models.length){
-      var wrap = h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px",marginTop:"4px"}});
-      for(var i=0;i<r.models.length;i++){
-        var m = r.models[i];
-        wrap.appendChild(h("span",{class:"el-tag el-tag--info el-tag--small",
-          title: m.firstParty, text: m.id}));
-      }
-      listHost.appendChild(h("div",{class:"el-form-item__label",style:{marginTop:"10px"},text:"当前清单"}));
-      listHost.appendChild(wrap);
+    var models = r.models || [];
+    var envDisabled = r.envDisabled || [];
+    var boxes = [];
+
+    var wrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:"6px",marginTop:"6px"}});
+    for(var i=0;i<models.length;i++){
+      (function(m){
+        var cb = h("input",{type:"checkbox"});
+        cb.checked = !m.hidden;
+        /* env 里钉死的那些在面板上改不了，摆个禁用框比装作能点更诚实 */
+        var locked = envDisabled.indexOf(m.id) >= 0;
+        if(locked) cb.disabled = true;
+        var lbl = h("label",{style:{display:"flex",alignItems:"center",gap:"6px",fontSize:"12px",
+          cursor: locked ? "not-allowed" : "pointer", opacity: locked ? "0.6" : "1"},
+          title: m.id + "  →  " + m.firstParty + (locked ? "（被 MODEL_DISABLED 钉死）" : "")},
+          [ cb, h("span",{text:m.label + " · " + m.id}) ]);
+        wrap.appendChild(lbl);
+        boxes.push({ m:m, cb:cb, locked:locked });
+      })(models[i]);
     }
+
+    var save = h("button",{class:"el-button el-button--primary el-button--small",type:"button",text:"保存勾选"});
+    var all = h("button",{class:"el-button el-button--small",type:"button",text:"全选"});
+    var none = h("button",{class:"el-button el-button--small",type:"button",text:"全不选"});
+    function setAll(v){ for(var i=0;i<boxes.length;i++){ if(!boxes[i].locked) boxes[i].cb.checked = v; } }
+    all.addEventListener("click", function(){ setAll(true); });
+    none.addEventListener("click", function(){ setAll(false); });
+    save.addEventListener("click", function(){
+      var hidden = [];
+      for(var i=0;i<boxes.length;i++){ if(!boxes[i].cb.checked) hidden.push(boxes[i].m.id); }
+      save.disabled = true;
+      CG.api("models.disable",{ ids:hidden }).then(function(nr){
+        paint(nr);
+        CG.toast("已隐藏 " + hidden.length + " 个，对外 " + nr.count + " 个", "success");
+      }).catch(CG.showErr).then(function(){ save.disabled = false; });
+    });
+
+    listHost.appendChild(h("div",{class:"el-form-item__label",style:{marginTop:"12px"},
+      text:"对外返回哪些模型（取消勾选即隐藏，消息接口也会拒收）"}));
+    listHost.appendChild(wrap);
+    listHost.appendChild(h("div",{style:{marginTop:"10px",display:"flex",gap:"6px"}}, [ save, all, none ]));
   }
   function load(){ return CG.api("models.status",{}).then(paint); }
 
@@ -855,7 +925,6 @@ function modelCard(){
     out, listHost
   ]));
 }
-
 /* 出口自检卡片。启动时会自动跑一次，这里是手动重跑 —— 换了代理不用重启 */
 function egressCard(){
   var out = h("div",{});
@@ -871,6 +940,9 @@ function egressCard(){
     var tone = r.conclusive ? (r.proxyIgnored ? "danger" : "success") : "warning";
     out.appendChild(h("div",{style:{color:"var(--el-color-"+tone+")",fontWeight:"500"},
       text: r.conclusive ? (r.proxyIgnored ? "代理没生效" : "出口正常") : "无法判定"}));
+    /* 先亮出「配置里到底解析出什么代理」。之前这里只说「没有配置出站代理」，
+       但不说它读到了什么，排查时只能干瞪眼 */
+    out.appendChild(line("出站代理", r.proxy || "（未配置）", r.proxyConfigured ? null : "warning"));
     out.appendChild(line("直连出口", r.direct && r.direct.ip ? r.direct.ip : ("取不到（"+((r.direct&&r.direct.error)||"未知")+"）")));
     out.appendChild(line("经代理出口", r.proxied && r.proxied.ip ? r.proxied.ip : ("取不到（"+((r.proxied&&r.proxied.error)||"未知")+"）")));
     out.appendChild(line("回显服务", r.url));
