@@ -124,7 +124,13 @@ async function main(): Promise<void> {
     body: MSG
   });
   eq("缺 CC 头 403", bare.status, 403);
-  ok("403 指明缺失头", bare.text.includes("user-agent") && bare.text.includes("x-app"), bare.text.slice(0, 160));
+  ok("403 只说不是 Claude Code 客户端", bare.text.includes("不是 Claude Code 客户端"), bare.text.slice(0, 160));
+ok("403 不列缺失的头", !bare.text.includes("user-agent") && !bare.text.includes("x-app"), bare.text.slice(0, 200));
+/* 细节没丢，只是挪到了请求日志的「说明」列 —— 面板能查到 */
+{
+  const rl = await request(port, "/panel/api?action=logs.requests&limit=5&key=smoke-admin", {});
+  ok("缺失的头记进了请求日志", rl.text.includes("user-agent"), rl.text.slice(0, 240));
+}
   eq("403 为 anthropic 错误形态", asRecord(bare.json).type, "error");
 
   const badUa = await request(port, "/v1/messages", { headers: ccHeaders({ "user-agent": "curl/8.0" }), body: MSG });

@@ -260,31 +260,48 @@ session_id: K(),
 所以这条路径直接放行，同时把 `User-Agent` / `x-app` / `anthropic-version` / `anthropic-beta` /
 `x-claude-code-session-id` 全补成 Claude Code 的样子。`POST /v1/models` 与 `/v1/messages` 仍然守卫。
 
-## 遇到 403「请求头校验失败」怎么办
+## 遇到 403 怎么办
 
 绑定 `claude_code` 指纹策略的 Key，网关会拒绝看起来不像 Claude Code 的客户端，
 以免账号因为异常客户端被上游风控。裸 `curl` 就会撞上：
 
 ```json
-{"error":{"message":"请求头校验失败：缺少或不匹配 Claude Code 头 [user-agent, x-app]。...",
+{"error":{"message":"识别到您使用的不是 Claude Code 客户端。\n本网关仅接受 Claude Code 官方客户端，请更换后重试。",
  "type":"permission_error","code":"header_guard_rejected"}}
 ```
 
-两种改法：
+### 为什么文案这么短
 
-1. **请求里带上身份头**（真 Claude Code 本来就会带）：
+这条消息**刻意只说一句话**。
 
-   ```bash
-   curl http://<落地机>:8080/v1/models \
-     -H "Authorization: Bearer sk-gw-..." \
-     -H "User-Agent: claude-cli/2.1.293 (external, cli)" \
-     -H "x-app: cli"
-   ```
+它早先写了一整篇：缺了哪几个头、为什么会被拒、两种改法连 `curl` 参数都列出来。
+那是把网关当调试工具在教。可这个 Key 存在的意义就是「只给 Claude Code 用」，
+真 Claude Code 本来就不会缺头 —— 会看到这条的，基本都不是它。
+把「怎么补头」「怎么改 passthrough」摆在它面前，等于教人绕过自己的风控。
 
-   `anthropic-version`、`anthropic-beta`、`x-claude-code-session-id` 不用管，网关注入。
+### 缺了什么去哪看
 
-2. **调试用客户端**（curl / Postman / 第三方 SDK）：在面板把该 Key 的指纹策略改成 `passthrough`。
-   网关仍会补齐规范头，只是不再因为缺头拒绝。
+具体的头仍然被记下来，只是不占用户眼前的版面：
+
+- **面板 → 请求日志 → 说明列**：显示 `user-agent, x-app` 这样的缺失清单
+- **服务端日志**：同一条，带 req-id
+
+### 运维侧要放行调试工具
+
+在**面板**把该 Key 的指纹策略改成 `passthrough`。网关仍会补齐规范头，只是不再因为缺头拒绝。
+
+这是给运维的开的口子，不是给被拒客户端的提示 —— 所以不出现在响应里。
+
+另一种办法是让请求带上身份头（真 Claude Code 本来就会带）：
+
+```bash
+curl http://<落地机>:8080/v1/models \
+  -H "Authorization: Bearer sk-gw-..." \
+  -H "User-Agent: claude-cli/2.1.293 (external, cli)" \
+  -H "x-app: cli"
+```
+
+`anthropic-version`、`anthropic-beta`、`x-claude-code-session-id` 不用管，网关注入。
 
 ### 为什么 session-id 不由客户端提供
 

@@ -3,7 +3,6 @@ import { lowerHeaders, headerValue } from "../utils.ts";
 import { isApiKeyPlaintext } from "../store/apikeys.ts";
 import { sessionKey as deriveSessionKey } from "../ids.ts";
 import { openaiError, anthropicError } from "../http/respond.ts";
-import { CC_UA } from "../constants.ts";
 import type { ApiKeyStore, AuthState, Config } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -88,18 +87,20 @@ export function rejectUnauthorized(res: ServerResponse, isOpenai: boolean, reaso
 }
 
 export function rejectGuard(res: ServerResponse, isOpenai: boolean, missing: string[]): void {
-  /* 这条消息往往是用户唯一的线索，所以说清三件事：
-     缺了什么、为什么会被拒、以及照抄就能过的修法。 */
-  const msg =
-    "请求头校验失败：缺少或不匹配 Claude Code 头 [" + missing.join(", ") + "]。\n" +
-    "这个 Key 绑定的是 claude_code 指纹策略，网关会拒绝看起来不像 Claude Code 的客户端，" +
-    "以免账号因为异常客户端被上游风控。\n" +
-    "两种改法：\n" +
-    "  1. 请求里带上这两个头（真 Claude Code 本来就会带）：\n" +
-    "       -H \"User-Agent: " + CC_UA + "\" -H \"x-app: cli\"\n" +
-    "     anthropic-version 与 x-claude-code-session-id 不用管，网关会自己补。\n" +
-    "  2. 用 curl / Postman 之类的工具调试：在面板把该 Key 的指纹策略改成 passthrough，" +
-    "网关仍会补齐规范头，只是不再因为缺头拒绝。";
+  /*
+   * 对外只给一句话。
+   *
+   * 之前这里写了一整篇小作文：缺了哪几个头、为什么会被拒、两种改法连 curl 参数都列出来。
+   * 那是把网关当成调试工具在教 —— 但这个 Key 存在的意义就是「只给 Claude Code 用」，
+   * 真 Claude Code 本来就不会缺头；会看到这条的，基本都不是它。
+   * 教人怎么绕过自己的风控，逻辑上就不对。
+   *
+   * 缺的具体头仍然记进请求日志的「说明」列（server.ts 写进 tracker.blockDetail），
+   * 要排查去面板看，不占用户眼前的版面。
+   */
+  const msg = "识别到您使用的不是 Claude Code 客户端。\n" +
+    "本网关仅接受 Claude Code 官方客户端，请更换后重试。";
+  void missing;
   if (isOpenai) openaiError(res, 403, msg, "permission_error", "header_guard_rejected");
   else anthropicError(res, 403, msg, "permission_error");
 }

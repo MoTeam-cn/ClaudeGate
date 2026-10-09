@@ -219,7 +219,8 @@ const ccKeyNoHeaders = await request(addr.port, "/v1/messages", {
   body: BODY
 });
 eq("claude_code Key 缺头 403", ccKeyNoHeaders.status, 403);
-ok("403 说明指向指纹策略", JSON.stringify(ccKeyNoHeaders.json).includes("指纹"), ccKeyNoHeaders.text.slice(0, 160));
+ok("403 说的是「不是 Claude Code 客户端」", ccKeyNoHeaders.text.includes("不是 Claude Code 客户端"), ccKeyNoHeaders.text.slice(0, 160));
+ok("不暴露缺了哪几个头", !ccKeyNoHeaders.text.includes("user-agent"), ccKeyNoHeaders.text.slice(0, 160));
 
 const ccKeyOk = await request(addr.port, "/v1/messages", {
   headers: { ...CC, "x-api-key": mk.plaintext },

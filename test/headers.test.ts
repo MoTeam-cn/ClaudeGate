@@ -242,12 +242,12 @@ console.log("\n=== F. 推理端点：守卫只要求身份头，指纹头由网�
   const MSG_BODY = { model: "claude-sonnet-4-5-20250929", max_tokens: 16, messages: [{ role: "user", content: "hi" }] };
   const bare = await request(port, "/v1/messages", { headers: { authorization: "Bearer " + gwToken }, body: MSG_BODY });
   eq("裸请求被守卫拒绝", bare.status, 403);
-  ok("消息里点明了缺哪两个头",
-    bare.text.includes("user-agent") && bare.text.includes("x-app"), bare.text.slice(0, 220));
-  ok("消息里给了能直接照抄的修法",
-    bare.text.includes("x-app: cli") && bare.text.includes("passthrough"), bare.text.slice(0, 420));
-  ok("不再要求客户端提供 session-id",
-    !bare.text.includes("[user-agent, x-app, anthropic-version"), bare.text.slice(0, 220));
+  ok("只说不是 Claude Code 客户端", bare.text.includes("不是 Claude Code 客户端"), bare.text.slice(0, 220));
+  /* 文案刻意不长：不列缺了哪几个头、不给 curl 参数、不提 passthrough ——
+     那等于教被拒的客户端怎么绕过自己的风控。细节进请求日志。 */
+  ok("不列缺失的头", !bare.text.includes("user-agent") && !bare.text.includes("x-app"), bare.text.slice(0, 220));
+  ok("不给能直接照抄的修法", !bare.text.includes("x-app: cli") && !bare.text.includes("passthrough"), bare.text.slice(0, 420));
+  ok("文案只有两行", bare.text.split("\\n").length <= 3, bare.text.slice(0, 220));
 
   /* 只补身份头：应该放行 */
   const withId = await request(port, "/v1/messages", {
@@ -307,7 +307,8 @@ console.log("\n=== G. /v1/models 这类只读元数据端点不守卫，缺什�
     body: { model: "claude-sonnet-4-5-20250929", max_tokens: 16, messages: [{ role: "user", content: "hi" }] }
   });
   eq("/v1/messages 仍然守卫", msg.status, 403);
-  ok("报的还是守卫错误", msg.text.includes("请求头校验失败"), msg.text.slice(0, 180));
+  ok("报的是守卫错误", msg.text.includes("不是 Claude Code 客户端"), msg.text.slice(0, 180));
+  ok("文案里没有教怎么绕（不再列请求头）", !msg.text.includes("x-app"), msg.text.slice(0, 180));
 }
 
 clearTimeout(watchdog);
