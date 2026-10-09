@@ -19,12 +19,21 @@ export function isBun(): boolean {
  *
  * Node 的 fetch 是 undici，TLS 还是 OpenSSL，换了没意义，所以只在 Bun 上启用。
  *
- * 代价必须说清楚：Bun 的 fetch 会**按字母序重排请求头**，而真 Claude Code 的头序是插入序。
- * 也就是说这条通道买到的是 TLS 指纹一致，付出的是头序不一致。
- * 想要头序就把 TRANSPORT 设成 https。
+ * 代理：实测 Bun 的 fetch **支持 HTTP/HTTPS 代理**（CONNECT 隧道），
+ * 走代理时 ClientHello 与直连逐位一致 —— 因为 CONNECT 是透明隧道，
+ * TLS 仍然端到端握到 Anthropic，指纹是网关自己的。
+ * SOCKS5 不行：直接报 UnsupportedProxyProtocol，所以那种情况退回 node:https。
+ *
+ * 代价只剩一条：Bun 的 fetch 会重排请求头（普通对象 / Headers.set / Headers.append 都重排），
+ * 而真 Claude Code 的头序是插入序。想要头序就把 TRANSPORT 设成 https。
  */
 export function fetchTransportUsable(): boolean {
   return isBun();
+}
+
+/** fetch 通道能不能承载这种代理。HTTP/HTTPS 走 CONNECT 可以，SOCKS5 不行。 */
+export function fetchSupportsProxy(kind: string | null | undefined): boolean {
+  return kind === "http" || kind === "https";
 }
 
 /** 把出站代理配置转成 fetch 认的 URL */

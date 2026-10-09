@@ -202,6 +202,10 @@ async function gatewayVia(proxy: string): Promise<{ port: number; token: string;
     UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
     UPSTREAM_PROXY: proxy,
     GUARD_MODE: "strict", INJECT_MISSING: "false", STEGO_MODE: "block",
+    /* 这个文件测的是 CONNECT/SOCKS5 隧道本身，必须走 node:https 的 Agent 路径：
+       auto 在 Bun 上会选 fetch，而 fetch 对 http:// 目标走的是绝对形式请求，
+       不是 CONNECT 隧道 —— 那是另一条路径，不归这个文件测 */
+    TRANSPORT: "https",
     ADMIN_TOKEN: "proxy-admin", LOG_LEVEL: "error"
   });
   gw.accounts.create({

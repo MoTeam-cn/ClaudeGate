@@ -1,5 +1,11 @@
 # 出站代理
 
+> **代理不影响 TLS 指纹。** CONNECT 是透明隧道，TLS 端到端握到 Anthropic，
+> 指纹是网关自己的。实测「Bun fetch 经 HTTP CONNECT 代理」与真 Claude Code 的
+> JA3 完全一致。唯一不行的是 SOCKS5 —— Bun 的 fetch 直接报 `UnsupportedProxyProtocol`，
+> 这时会退回 `node:https` 通道，代理照常可用但 JA3 对不上。
+> 详见[指纹](fingerprint.md)。
+
 落地机要固定出口 IP，或者机器本身出不去时，配 `UPSTREAM_PROXY` 就行。
 
 ## 支持的协议

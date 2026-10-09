@@ -26,7 +26,8 @@
     "test:bun": "bun test/run-all.ts",
     "test:agent": "node test/agent.test.ts",
     "test:panel": "node test/panel.test.ts",
-    "test:contract": "node test/gateway-contract.test.ts"
+    "test:contract": "node test/gateway-contract.test.ts",
+    "test:ja3": "node test/ja3.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

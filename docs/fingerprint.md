@@ -107,7 +107,7 @@ Bun 的 `node:https` 少 `status_request(5)` 与 `signed_certificate_timestamp(1
 
 | `TRANSPORT` | 解析成 | 用在 |
 |---|---|---|
-| `auto`（默认） | Bun 且没配代理 -> `fetch`；否则 `https` | 默认就是最好指纹 |
+| `auto`（默认） | Bun 且（没配代理，或代理是 http/https）-> `fetch`；否则 `https` | 默认就是最好指纹 |
 | `https` | `node:https` | 头序优先、或需要出站代理时显式写死 |
 | `fetch` | `fetch` | 强制走 fetch（Bun 上） |
 
@@ -122,6 +122,13 @@ Bun 的 `node:https` 少 `status_request(5)` 与 `signed_certificate_timestamp(1
 | `fetch` 传普通对象 / `Headers.set` / `Headers.append` | 三种都重排，控制不了 |
 
 也就是说「完全一致的 JA3」只有 `fetch` 一条入口，没有别的办法。
+
+### 用 IP 还是域名，JA3 会不一样
+
+抓取器绑在 `127.0.0.1` 上时两边都不发 SNI，比出来是 12 扩展、
+JA3 `5260242a2eb12c71995767c24569bff5`；换成域名（`localhost`）两边都发 SNI，
+变成 13 扩展、JA3 `1523504b38f0fae0d881d4b6554aac1b`。**两个基线都对，但要对同一个**。
+生产环境走的是域名，所以真正要看的是后面那个。
 
 想自己复现这张表：`node test/tls-probe.ts 3199` 起抓取器，把各个通道指过去即可。
 

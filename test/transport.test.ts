@@ -41,9 +41,12 @@ eq("isBun 与 fetchTransportUsable 一致", bun, fetchTransportUsable());
 
 const fakeCfg = (over: Record<string, unknown>): Config => ({ transport: "auto", proxy: null, ...over } as unknown as Config);
 eq("auto + 无代理 -> 取能拿 JA3 的那条", effectiveTransport(fakeCfg({})), bun ? "fetch" : "https");
-eq("auto + 有代理 -> 退回 https", effectiveTransport(fakeCfg({ proxy: parseProxySpec("http://1.2.3.4:8080") })), "https");
+/* http/https 代理走 CONNECT 透明隧道，TLS 端到端握手，指纹不受影响，所以仍然选 fetch */
+eq("auto + http 代理 -> 仍取 fetch", effectiveTransport(fakeCfg({ proxy: parseProxySpec("http://1.2.3.4:8080") })), bun ? "fetch" : "https");
+eq("auto + socks5 代理 -> 退回 https（fetch 不支持）", effectiveTransport(fakeCfg({ proxy: parseProxySpec("socks5://1.2.3.4:1080") })), "https");
 eq("显式 https 不被 auto 覆盖", effectiveTransport(fakeCfg({ transport: "https" })), "https");
 eq("显式 fetch 保留", effectiveTransport(fakeCfg({ transport: "fetch", proxy: parseProxySpec("http://1.2.3.4:8080") })), "fetch");
+eq("显式 fetch + socks5 也照走（用户自己担）", effectiveTransport(fakeCfg({ transport: "fetch", proxy: parseProxySpec("socks5://1.2.3.4:1080") })), "fetch");
 
 /* 上游 mock：记下收到的头序 */
 const seen: Array<{ rawHeaders: string[]; body: string }> = [];

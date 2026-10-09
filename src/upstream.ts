@@ -11,7 +11,7 @@ import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
 import { injectCanonicalHeaders, fingerprintSeed } from "./guard.ts";
 import { headerValue } from "./utils.ts";
 import { connectViaProxy } from "./net/proxy.ts";
-import { fetchUpstream, fetchTransportUsable } from "./net/fetch.ts";
+import { fetchUpstream, fetchTransportUsable, fetchSupportsProxy } from "./net/fetch.ts";
 import type { Account, AuthState, Config, UpstreamResponse } from "./types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { SecureVersion } from "node:tls";
@@ -126,14 +126,20 @@ export interface UpstreamCallOptions {
  * fetch 的代价是两条：请求头被 Bun 的 Headers 重排（三种传参方式都重排，控制不了），
  * 以及不支持 SOCKS5 与 CONNECT 代理。
  *
- * 所以 auto 的规则是：能拿 JA3 就拿 —— Bun 且没配代理时走 fetch；
- * 非 Bun、或配了代理时退回 node:https。要强制头序优先就显式设 TRANSPORT=https。
+ * 代理不是障碍：实测 Bun 的 fetch 支持 HTTP/HTTPS 代理（CONNECT 隧道），
+ * 而且**走代理时 ClientHello 与直连逐位一致** —— CONNECT 是透明隧道，
+ * TLS 端到端握到 Anthropic，指纹是网关自己的，不是代理的。
+ * 只有 SOCKS5 不行（UnsupportedProxyProtocol），那种情况退回 node:https。
+ *
+ * 所以 auto 的规则是：能拿 JA3 就拿 —— Bun 且（没配代理、或代理是 http/https）时走 fetch；
+ * 其余退回 node:https。要强制头序优先就显式设 TRANSPORT=https。
  */
 export function effectiveTransport(cfg: Config): "fetch" | "https" {
   if (cfg.transport === "fetch") return "fetch";
   if (cfg.transport === "https") return "https";
-  /* auto：Bun 且直连才有意义 */
-  if (fetchTransportUsable() && !cfg.proxy) return "fetch";
+  if (!fetchTransportUsable()) return "https";
+  /* 没配代理，或者配的是 fetch 能承载的代理，都能拿到 JA3 */
+  if (!cfg.proxy || fetchSupportsProxy(cfg.proxy.kind)) return "fetch";
   return "https";
 }
 

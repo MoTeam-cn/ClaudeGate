@@ -36,7 +36,7 @@
 | `UPSTREAM_PROXY` | 空 | 出站代理，见[出站代理](proxy.md) |
 | `TLS_MIN` / `TLS_MAX` | `TLSv1.2` / `TLSv1.3` | 到上游的 TLS 版本范围，**不要随意改**，它是指纹的一部分 |
 | `REWRITE_USER_ID` | `device` | `metadata.user_id` 重写模式：`off` 不动 / `device` 只换 device_id / `full` 连 account_uuid 一起 |
-| `TRANSPORT` | `auto` | 上游通道。`auto` = Bun 且没配代理时走 `fetch`（JA3 与真 Claude Code 逐位一致，代价是请求头被重排），否则走 `node:https`（保头序、支持全部代理但 JA3 对不上）。要头序优先就显式设 `https` |
+| `TRANSPORT` | `auto` | 上游通道。`auto` = Bun 且（没配代理或代理是 http/https）时走 `fetch`（JA3 与真 Claude Code 逐位一致，代价是请求头被重排），否则走 `node:https`（保头序、支持 SOCKS5 但 JA3 对不上）。要头序优先就显式设 `https` |
 | `TLS_CIPHERS` | BoringSSL 那 17 个 | 出站密码套件。默认与真 Claude Code 一致；填 `default` 退回 Node 自带 52 个 |
 | `UPSTREAM_ALPN` | `http/1.1` | ALPN 协议列表，同上 |
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游请求超时 |
