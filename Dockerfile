@@ -9,7 +9,7 @@ FROM oven/bun:1-alpine AS build
 WORKDIR /app
 
 # 先只拷依赖清单，让这层能被缓存住
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY tsconfig.json ./

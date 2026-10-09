@@ -58,3 +58,34 @@ jobs:
 
       - name: 测试
         run: bun test/run-all.ts
+
+  # 镜像必须真能构建、真能起来。Dockerfile 换了基础镜像之后，
+  # 只跑 bun test 是测不到 COPY 路径、权限、健康检查这些的。
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 构建镜像
+        run: docker build -t claudegate:ci .
+
+      - name: 起容器并等健康检查
+        run: |
+          docker run -d --name cg -p 8800:8800 \
+            -e ADMIN_TOKEN=ci-admin-token \
+            -e SECRET=ci-secret-ci-secret-ci-secret \
+            claudegate:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8800/healthz > /dev/null; then
+              echo "健康检查通过（第 $i 次）"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "容器 30 秒内没通过健康检查"
+          docker logs cg
+          exit 1
+
+      - name: 面板页可达
+        run: curl -fsS "http://127.0.0.1:8800/panel?key=ci-admin-token" | head -c 200
