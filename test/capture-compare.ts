@@ -7,6 +7,7 @@
  * 运行：node test/capture-compare.ts <raw.jsonl>
  */
 import http from "node:http";
+import { cleanupDir } from "./helpers/tmp.ts";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -196,5 +197,5 @@ console.log("  usage 四维是否完整: " + (() => {
 
 upstream.close();
 await gw.close();
-fs.rmSync(dataDir, { recursive: true, force: true });
+cleanupDir(dataDir);
 process.exit(0);

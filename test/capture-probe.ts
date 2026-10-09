@@ -10,6 +10,7 @@
  */
 
 import http from "node:http";
+import { cleanupDir } from "./helpers/tmp.ts";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -84,7 +85,7 @@ const upPort = await new Promise<number>((r) => upstream.listen(0, "127.0.0.1", 
 
 /* ---------- 网关：记录客户端原始请求与回给客户端的响应 ---------- */
 const dataDir = path.join(OUT, "data");
-fs.rmSync(dataDir, { recursive: true, force: true });
+cleanupDir(dataDir);
 
 const gw = createGateway({
   PORT: "0",

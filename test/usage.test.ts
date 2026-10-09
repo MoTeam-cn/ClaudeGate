@@ -5,6 +5,7 @@
  */
 
 import http from "node:http";
+import { cleanupDir } from "./helpers/tmp.ts";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
@@ -428,7 +429,7 @@ for (const fn of cleanup) {
   try { await fn(); } catch { /* 忽略 */ }
 }
 for (const d of dataDirs) {
-  try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* 忽略 */ }
+  cleanupDir(d);
 }
 
 clearTimeout(watchdog);

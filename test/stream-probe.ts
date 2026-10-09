@@ -4,6 +4,7 @@
  * 运行：node test/stream-probe.ts
  */
 import http from "node:http";
+import { cleanupDir } from "./helpers/tmp.ts";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
@@ -128,4 +129,4 @@ console.log(span1 > GAP * 2 && span2 > GAP * 2 ? "结论：真流式（分片随
 await gw.close();
 if (typeof upstream.closeAllConnections === "function") upstream.closeAllConnections();
 await new Promise<void>((r) => upstream.close(() => r()));
-fs.rmSync(dataDir, { recursive: true, force: true });
+cleanupDir(dataDir);

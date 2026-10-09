@@ -36,3 +36,25 @@ jobs:
 
       - name: 构建
         run: npm run build
+
+  # 同一个网关必须也能跑在 Bun 上：BoringSSL 的 TLS 指纹才对得上真 Claude Code。
+  # 这条不加的话，Bun 兼容会悄悄烂掉。
+  test-bun:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 装 Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: 安装依赖
+        run: bun install --frozen-lockfile
+
+      - name: 类型检查
+        run: bunx tsc --noEmit
+
+      - name: 测试
+        run: bun test/run-all.ts

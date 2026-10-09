@@ -4,6 +4,7 @@
  * 运行：node test/headers.test.ts
  */
 import http from "node:http";
+import { cleanupDir } from "./helpers/tmp.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -229,7 +230,7 @@ console.log("\n=== E. 凭据头原地改名（Console 号） ===");
 clearTimeout(watchdog);
 upstream.close();
 await gw.close();
-fs.rmSync(dataDir, { recursive: true, force: true });
+cleanupDir(dataDir);
 
 console.log("\n================================");
 console.log("  PASS " + pass + "   FAIL " + fail);

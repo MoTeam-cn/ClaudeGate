@@ -21,7 +21,9 @@
     "test:pool": "node test/pool.test.ts",
     "test:usage": "node test/usage.test.ts",
     "test:proxy": "node test/proxy.test.ts",
-    "test:headers": "node test/headers.test.ts"
+    "test:headers": "node test/headers.test.ts",
+    "start:bun": "bun src/index.ts",
+    "test:bun": "bun test/run-all.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -5,6 +5,7 @@
  * 运行：node test/proxy.test.ts
  */
 import net from "node:net";
+import { cleanupDir } from "./helpers/tmp.ts";
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -288,7 +289,7 @@ upstream.close();
 httpProxy.close();
 socksPlain.server.close();
 socksAuth.server.close();
-for (const d of dataDirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* 忽略 */ } }
+for (const d of dataDirs) cleanupDir(d);
 
 console.log("\n================================");
 console.log("  PASS " + pass + "   FAIL " + fail);
