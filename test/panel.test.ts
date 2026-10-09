@@ -175,6 +175,9 @@ const all = src("client.ts") + src("views.ts") + src("components.ts");
 const features: Array<[string, boolean]> = [
   ["表格排序（表头可点）", all.includes("is-sortable")],
   ["表头吸顶", /el-table th\{[^}]*position:sticky/.test(src("components.ts"))],
+  ["表格有内滚动高度", /\.el-table-wrap\{[^}]*max-height/.test(src("components.ts"))],
+  ["表头整块吸顶", /\.el-table thead\{[^}]*position:sticky/.test(src("components.ts"))],
+  ["表格可以单独定高", src("client.ts").includes("opt.maxHeight")],
   ["长文本截断", all.includes("clamp") && all.includes("-webkit-line-clamp")],
   ["列筛选", all.includes("cg-colfilter") && all.includes("filterRows")],
   ["批量操作", all.includes("batchActions") && all.includes("cg-batchbar")],

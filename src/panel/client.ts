@@ -503,6 +503,8 @@ function table(columns, rows, opt){
   function selectedIds(){ return Object.keys(selected).filter(function(k){ return selected[k]; }); }
 
   var wrap = h("div",{class:"el-table-wrap"});
+  /* 想给某张表单独定高就传 opt.maxHeight，比如 opt.maxHeight = "40vh" */
+  if(opt.maxHeight) wrap.style.maxHeight = opt.maxHeight;
   var bar = h("div",{class:"cg-batchbar hidden"});
   var tbl = h("table",{class:"el-table"+(opt.striped===false?"":" el-table--striped")});
 

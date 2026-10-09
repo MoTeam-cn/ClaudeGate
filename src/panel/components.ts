@@ -151,7 +151,19 @@ select.el-input__inner{appearance:none;background-image:linear-gradient(45deg,tr
 .cg-filters .cg-grow .el-input{width:100%}
 
 /* ============ 表格 ============ */
-.el-table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+/*
+ * 表格自己有内滚动高度。之前只有 overflow-x，纵向不滚，于是行一多就把整页顶高，
+ * 侧栏是 sticky 100vh，内容却越长越长，滚动条一路到底 —— 很难看。
+ * overscroll-behavior:contain 让滚到表格尽头时不要把滚动传给整页。
+ */
+.el-table-wrap{
+  width:100%;max-height:var(--cg-table-max-h,60vh);overflow:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+}
+/* 表头整块吸顶。用 thead 而不是只钉 th —— 筛选行也在 thead 里，得跟着一起钉住 */
+.el-table thead{position:sticky;top:0;z-index:3}
+/* 吸顶后下面的分隔线会跟着滚走，用阴影补一条 */
+.el-table thead tr:last-child > *{box-shadow:inset 0 -1px 0 var(--el-border-color-lighter)}
 .el-table{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--el-font-size-small)}
 .el-table th{
   position:sticky;top:0;z-index:2;background:var(--el-fill-color-light);
@@ -378,11 +390,14 @@ select.el-input__inner{appearance:none;background-image:linear-gradient(45deg,tr
 
 /* ============ 移动端 ============ */
 @media (max-width:900px){
+  /* 手机屏幕矮，表格内高收一收 */
+  :root{--cg-table-max-h:52vh}
   .el-table .cg-filterrow th,.el-table .cg-filterrow td{position:static}
   .cg-inline-edit{min-width:90px}
   :root{--cg-content-pad:12px}
   .cg-side{
-    position:fixed;z-index:2001;transform:translateX(-100%);
+    position:fixed;
+    z-index:2001;transform:translateX(-100%);
     transition:transform var(--el-transition-duration);box-shadow:var(--el-box-shadow-dark);
   }
   .cg-side.is-open{transform:none}

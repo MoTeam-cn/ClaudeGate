@@ -6,6 +6,8 @@
  */
 export const TOKENS_CSS = `
 :root{
+  /* 表格内滚动高度。屏幕矮就调小，想要一屏看更多行就调大 */
+  --cg-table-max-h:60vh;
   /* 主色与状态色 —— Element Plus 原值 */
   --el-color-primary:#409eff;
   --el-color-primary-light-3:#79bbff;
