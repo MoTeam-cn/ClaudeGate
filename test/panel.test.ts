@@ -54,6 +54,20 @@ const html2 = panelHtml({ cfg: { adminToken: "" } } as unknown as GatewayContext
 ok("未设令牌时提示无鉴权", html2.includes("无鉴权"));
 ok("设了令牌时提示已鉴权", html.includes("已启用 ADMIN_TOKEN"));
 
+/* 令牌的来路与去路：不进 URL、走头、存 localStorage、失效重问 */
+const authSrc = src("client.ts");
+ok("前端不再从查询串取令牌", !authSrc.includes('QS.get("key")') && !authSrc.includes('"&key="'));
+ok("令牌走 x-admin-token 头", authSrc.includes("x-admin-token"));
+ok("令牌存 localStorage", authSrc.includes('localStorage.getItem("cg_admin")'));
+ok("401 会清空令牌", /clearToken\(\)/.test(authSrc));
+ok("清空后重新询问", /clearToken\(\)[\s\S]{0,300}askToken\(/.test(authSrc));
+ok("要令牌的弹窗不可关闭", authSrc.includes("noClose:true"));
+ok("令牌在写进 localStorage 前先校验", /x-admin-token": v[\s\S]{0,400}setToken\(v\)/.test(authSrc));
+ok("对话框支持 noClose", authSrc.includes("var noClose = !!opt.noClose"));
+ok("面板路由不再对页面做鉴权", !src("../routes/panel.ts").includes("请用 /panel?key="));
+ok("登录成功页不再把令牌拼进链接", !src("../routes/auth.ts").includes("/panel?key="));
+ok("根路由不再带 key 跳转", !src("../routes/admin.ts").includes('location: "/panel" + '));
+
 /* ================= 内联脚本可解析 ================= */
 console.log("\n=== B. 内联脚本 ===");
 const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);
@@ -126,19 +140,28 @@ try {
 
   /* 用仓库自带的 http 助手而不是 fetch：undici 的 keep-alive 会让
      Windows 上的 libuv 在进程退出时断言（UV_HANDLE_CLOSING） */
+  /* 面板外壳不再要鉴权：它就是一份静态 HTML，一个字节的数据都不含 */
   const noKey = await request(port, "/panel");
-  eq("面板页无令牌 401", noKey.status, 401);
+  eq("面板页不需要令牌（外壳是静态的）", noKey.status, 200);
+  ok("返回的是 HTML", noKey.text.startsWith("<!doctype html>"));
+  ok("面板页带上了内联脚本", noKey.text.includes("<script>"));
+  ok("页面里没有管理员令牌", !noKey.text.includes("panel-admin"));
 
-  const page = await request(port, "/panel?key=panel-admin");
-  eq("面板页带令牌 200", page.status, 200);
-  ok("返回的是 HTML", page.text.startsWith("<!doctype html>"));
-  ok("面板页带上了内联脚本", page.text.includes("<script>"));
+  const withQuery = await request(port, "/panel?key=panel-admin");
+  eq("带不带 key 都是 200（页面已忽略它）", withQuery.status, 200);
 
   const noAuth = await request(port, "/panel/api?action=overview");
   eq("无令牌被拒", noAuth.status, 401);
 
+  /* 查询串这条路留着，是给 curl 用的；前端已经不用了 */
   const badAuth = await request(port, "/panel/api?action=overview&key=wrong");
-  eq("错令牌被拒", badAuth.status, 401);
+  eq("错令牌被拒（查询串仍兼容 curl）", badAuth.status, 401);
+
+  const badHeader = await request(port, "/panel/api?action=overview", { headers: { "x-admin-token": "wrong" } });
+  eq("错令牌走头也被拒", badHeader.status, 401);
+
+  const goodHeader = await request(port, "/panel/api?action=overview", { headers: { "x-admin-token": "panel-admin" } });
+  eq("前端走 x-admin-token 头放行", goodHeader.status, 200);
 
   const good = await request(port, "/panel/api?action=overview&key=panel-admin");
   eq("正确令牌放行", good.status, 200);

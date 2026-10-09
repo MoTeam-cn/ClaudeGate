@@ -22,7 +22,7 @@ gw.listen()
     gw.log.info(
       "pool=" + gw.accounts.list().length + " accounts, " + gw.keys.list().length + " api keys, stego=" + gw.cfg.stegoMode
     );
-    gw.log.info("panel: " + (gw.cfg.adminToken ? "/panel?key=<ADMIN_TOKEN>" : "/panel（未设置 ADMIN_TOKEN，无鉴权）"));
+    gw.log.info("panel: /panel" + (gw.cfg.adminToken ? "（首次进入会要求管理员令牌，存在浏览器 localStorage）" : "（未设置 ADMIN_TOKEN，无鉴权）"));
     for (const w of gw.warnings) gw.log.warn(w);
     if (!gw.accounts.list().length) {
       gw.log.warn("号池为空：打开面板添加账号，或访问 /login 走 OAuth 授权");

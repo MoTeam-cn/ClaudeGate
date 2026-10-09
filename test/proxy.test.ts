@@ -56,7 +56,10 @@ throws("端口超范围拒绝", () => parseProxySpec("http://1.2.3.4:99999"), "�
 throws("地址无法解析时抛错", () => parseProxySpec("http://[bad"), "无法解析");
 
 /* ================= mock 目标站 ================= */
+/* 计数很关键：代理挂掉时它必须是 0 —— 那才叫「没有回退直连」 */
+let upstreamHits = 0;
 const upstream = http.createServer((req, res) => {
+  upstreamHits++;
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify({
     id: "m", type: "message", role: "assistant", model: "x",
@@ -280,12 +283,32 @@ console.log("\n=== F. 带用户名密码的 SOCKS5 ===");
   await bad.close();
 }
 
-console.log("\n=== G. 代理不可达 ===");
+console.log("\n=== G. 代理不可达时绝不回退直连 ===");
 {
+  /* 关键：mock 目标站是**活着且直连可达**的（就在 127.0.0.1）。
+     如果实现里有任何一条「代理失败就直连」的退路，这里就会 200 并打到目标站。
+     它必须 502，且目标站命中数必须是 0 —— 否则真实 IP 就漏出去了。 */
+  const before = upstreamHits;
+
   const gw = await gatewayVia("socks5://127.0.0.1:9");
   const res = await request(gw.port, "/v1/messages", { headers: CC(gw.token), body: BODY });
   eq("代理挂了返回 502", res.status, 502);
+  eq("目标站一次都没被打到（没有回退直连）", upstreamHits - before, 0);
   await gw.close();
+
+  /* http 代理同样要失败即失败 */
+  const gw2 = await gatewayVia("http://127.0.0.1:9");
+  const res2 = await request(gw2.port, "/v1/messages", { headers: CC(gw2.token), body: BODY });
+  eq("http 代理挂了也返回 502", res2.status, 502);
+  eq("http 代理挂了也没回退直连", upstreamHits - before, 0);
+  await gw2.close();
+
+  /* 正常走代理时目标站确实被打到过，证明这个计数是活的 */
+  const alive = await gatewayVia("http://127.0.0.1:" + httpProxyPort);
+  const res3 = await request(alive.port, "/v1/messages", { headers: CC(alive.token), body: BODY });
+  eq("走活代理时 200", res3.status, 200);
+  ok("走活代理时目标站确实被打到", upstreamHits - before > 0, "命中=" + (upstreamHits - before));
+  await alive.close();
 }
 
 clearTimeout(watchdog);

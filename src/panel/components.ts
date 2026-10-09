@@ -338,4 +338,6 @@ select.cg-colfilter{padding-right:20px!important;background-position:calc(100% -
   .el-card__body{padding:12px}
   .el-card__header{padding:12px}
 }
+/* 表单内的错误提示（要令牌的弹窗用）：跟着 Element 的 danger 色 */
+.cg-form-err{min-height:18px;margin-top:6px;font-size:12px;line-height:18px;color:var(--el-color-danger)}
 `;

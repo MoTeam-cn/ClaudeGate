@@ -73,10 +73,16 @@ function fmtDur(ms){
 }
 
 /* ============ 管理员令牌 ============ */
-var QS = new URLSearchParams(location.search);
-var TOKEN = QS.get("key") || localStorage.getItem("cg_admin") || "";
-if(QS.get("key")) localStorage.setItem("cg_admin", QS.get("key"));
-function authQuery(){ return TOKEN ? ("key="+encodeURIComponent(TOKEN)) : ""; }
+/* 令牌只存 localStorage，只走 x-admin-token 头。
+   不进 URL —— URL 会进浏览器历史、Referer、以及服务端访问日志。 */
+var TOKEN = localStorage.getItem("cg_admin") || "";
+function setToken(t){ TOKEN = t; localStorage.setItem("cg_admin", t); }
+function clearToken(){ TOKEN = ""; localStorage.removeItem("cg_admin"); }
+function authHeaders(){
+  var hd = {};
+  if(TOKEN) hd["x-admin-token"] = TOKEN;
+  return hd;
+}
 
 /* ============ 接口 ============ */
 function api(action, params){
@@ -85,13 +91,21 @@ function api(action, params){
   var qi = action.indexOf("?");
   var name = qi === -1 ? action : action.slice(0, qi);
   var extra = qi === -1 ? "" : "&" + action.slice(qi + 1);
-  var q = "action=" + encodeURIComponent(name) + extra + (TOKEN ? "&key=" + encodeURIComponent(TOKEN) : "");
+  var q = "action=" + encodeURIComponent(name) + extra;
   var body = params ? JSON.stringify(params) : null;
+  var hdrs = authHeaders();
+  if(body) hdrs["content-type"] = "application/json";
   return fetch("/panel/api?" + q, {
     method: body ? "POST" : "GET",
-    headers: body ? { "content-type": "application/json" } : {},
+    headers: hdrs,
     body: body
   }).then(function(r){
+    /* 令牌失效或缺失：清掉本地的，重新问，问到了再刷一遍当前页。
+       这里不再往下走错误分支，免得同时弹窗又弹 toast */
+    if(r.status === 401){
+      clearToken();
+      askToken("管理员令牌无效或已过期，请重新输入").then(function(){ refresh(); });
+    }
     return r.text().then(function(t){
       var d = null;
       try { d = JSON.parse(t); } catch(e){}
@@ -140,19 +154,22 @@ function dialog(opt){
   if(opt.onOk){
     okBtn = h("button",{class:"el-button el-button--primary",text:opt.okText||"确定",onclick:finish});
   }
+  /* noClose：不可关（要令牌时用）。藏掉取消与 ✕，遮罩点击也不关 —— 
+     没有令牌就什么都看不到，给个关闭按钮只会让人以为面板坏了 */
+  var noClose = !!opt.noClose;
   var foot = h("div",{class:"el-dialog__footer"},[
-    opt.onOk ? h("button",{class:"el-button",text:opt.cancelText||"取消",onclick:close}) : null,
+    (opt.onOk && !noClose) ? h("button",{class:"el-button",text:opt.cancelText||"取消",onclick:close}) : null,
     okBtn,
-    opt.onOk ? null : h("button",{class:"el-button el-button--primary",text:"知道了",onclick:close})
+    (opt.onOk || noClose) ? null : h("button",{class:"el-button el-button--primary",text:"知道了",onclick:close})
   ]);
   dlg.appendChild(h("div",{class:"el-dialog__header"},[
     h("div",{class:"el-dialog__title",text:opt.title||""}),
-    h("button",{class:"el-button el-button--text",text:"✕",onclick:close,style:{fontSize:"14px"}})
+    noClose ? null : h("button",{class:"el-button el-button--text",text:"✕",onclick:close,style:{fontSize:"14px"}})
   ]));
   dlg.appendChild(body);
   dlg.appendChild(foot);
   overlay.appendChild(dlg);
-  overlay.addEventListener("mousedown", function(ev){ if(ev.target===overlay && opt.maskClose!==false) close(); });
+  overlay.addEventListener("mousedown", function(ev){ if(ev.target===overlay && opt.maskClose!==false && !noClose) close(); });
   document.body.appendChild(overlay);
   openDialogs++;
   var first = $("input,textarea,select", dlg);
@@ -182,6 +199,53 @@ function promptDialog(title, label, value, placeholder){
       onOk:function(){ resolve(input.value); }
     });
   });
+}
+
+/* ============ 要令牌 ============ */
+/* 不可关闭：没令牌什么都看不到。先用一次真实请求校验，错的令牌不写进 localStorage。 */
+var askingToken = null;
+function askToken(msg){
+  if(askingToken) return askingToken;
+  askingToken = new Promise(function(resolve){
+    var input = h("input",{class:"el-input__inner",type:"password",placeholder:"ADMIN_TOKEN",autocomplete:"off"});
+    var err = h("div",{class:"cg-form-err"});
+    var box = h("div",{class:"el-form-item"},[
+      h("div",{class:"el-form-item__label",text:msg || "请输入管理员令牌（服务端 ADMIN_TOKEN）"}),
+      input, err
+    ]);
+    function submit(){
+      var v = input.value.trim();
+      if(!v){ err.textContent = "不能为空"; return Promise.resolve(false); }
+      err.textContent = "校验中…";
+      return fetch("/panel/api?action=overview", { headers:{ "x-admin-token": v } }).then(function(r){
+        if(!r.ok){
+          err.textContent = r.status === 401 ? "令牌不对" : ("校验失败 HTTP " + r.status);
+          return false;
+        }
+        err.textContent = "";
+        setToken(v);
+        askingToken = null;
+        resolve(v);
+        return true;
+      }).catch(function(e){
+        err.textContent = String(e && e.message || e);
+        return false;
+      });
+    }
+    dialog({
+      title:"需要管理员令牌",
+      body:box,
+      maskClose:false,
+      noClose:true,
+      okText:"进入",
+      /* 返回 false 让对话框保持打开 */
+      onOk:submit
+    });
+    input.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); submit(); }
+    });
+  });
+  return askingToken;
 }
 
 /** 开关：Element 的 el-switch。返回 {el, input}，input 用来读写选中态 */
@@ -549,7 +613,8 @@ window.CG = {
   api:api, toast:toast, showErr:showErr, dialog:dialog, confirmDialog:confirmDialog, promptDialog:promptDialog,
   h:h, $:$, $$:$$, esc:esc, clear:clear, skeleton:skeleton, emptyState:emptyState, table:table, pager:pager,
   go:go, onRefresh:onRefresh, refresh:refresh, fmtTime:fmtTime, fmtAgo:fmtAgo, fmtNum:fmtNum, fmtDur:fmtDur,
-  lastData:lastData, getToken:function(){ return TOKEN; }
+  lastData:lastData, getToken:function(){ return TOKEN; },
+  setToken:setToken, clearToken:clearToken, askToken:askToken
 };
 window.CG.switchBox = switchBox;
 window.CG.inlineEdit = inlineEdit;
@@ -588,9 +653,17 @@ document.addEventListener("DOMContentLoaded", function(){
   var t = $("#theme"); if(t) t.addEventListener("click", toggleTheme);
   var r = $("#reload"); if(r) r.addEventListener("click", function(){ refresh(); });
   var a = $("#auto"); if(a){ a.checked = AUTO; a.addEventListener("change", function(){ setAuto(a.checked); }); }
-  doRender();
-  setInterval(autoTick, 15000);
-  setInterval(function(){ $$("[data-ago]").forEach(function(e){ e.textContent = fmtAgo(Number(e.getAttribute("data-ago"))); }); }, 10000);
+  var started = false;
+  function start(){
+    if(started) return;
+    started = true;
+    doRender();
+    setInterval(autoTick, 15000);
+    setInterval(function(){ $$("[data-ago]").forEach(function(e){ e.textContent = fmtAgo(Number(e.getAttribute("data-ago"))); }); }, 10000);
+  }
+  /* 没令牌就先问，问到再渲染。没有阻塞式的 prompt，弹窗自己会校验 */
+  if(TOKEN) start();
+  else askToken().then(start);
 });
 })();
 `;

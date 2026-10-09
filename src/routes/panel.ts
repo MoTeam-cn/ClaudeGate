@@ -7,11 +7,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 export function createPanelRoutes(ctx: GatewayContext, requireAdmin: (req: IncomingMessage, url: URL) => boolean) {
   const api = createPanelApi(ctx, requireAdmin);
 
+  /**
+   * 面板外壳不再要鉴权 —— 它就是一份静态 HTML，不含任何数据。
+   * 令牌由前端弹窗问用户，存 localStorage，之后所有 /panel/api 调用带 x-admin-token 头。
+   * 这样令牌不会出现在 URL、浏览器历史、Referer 和服务端访问日志里。
+   */
   function page(req: IncomingMessage, res: ServerResponse, url: URL): void {
-    if (!requireAdmin(req, url)) {
-      sendJson(res, 401, { error: { message: "管理员令牌无效或缺失。请用 /panel?key=ADMIN_TOKEN 访问。" } });
-      return;
-    }
     sendHtml(res, 200, panelHtml(ctx));
   }
 

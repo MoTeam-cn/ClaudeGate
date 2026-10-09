@@ -13,6 +13,7 @@ import { VIEWS_JS } from "./views.ts";
 export function panelHtml(ctx: GatewayContext): string {
   const hasAdmin = !!ctx.cfg.adminToken;
   const authNote = hasAdmin ? "已启用 ADMIN_TOKEN 鉴权" : "未设置 ADMIN_TOKEN，无鉴权";
+  /* 令牌由前端弹窗索取并存 localStorage，不进 URL */
   return [
     "<!doctype html>",
     '<html lang="zh-CN" data-theme="dark">',

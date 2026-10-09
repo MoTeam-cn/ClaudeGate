@@ -24,7 +24,7 @@ npm start
 启动日志会打印号池账号数、API Key 数、隐写模式与面板地址。打开：
 
 ```text
-http://127.0.0.1:8080/panel?key=<ADMIN_TOKEN>
+http://127.0.0.1:8080/panel
 ```
 
 ## 面板导览
@@ -49,7 +49,8 @@ http://127.0.0.1:8080/panel?key=<ADMIN_TOKEN>
 | OpenAI | `POST /v1/chat/completions`（含 SSE） | `Authorization: Bearer <key>` |
 | OpenAI | `GET /v1/models` | 同上 |
 | 运维 | `GET /healthz` | 无 |
-| 面板 | `/panel`、`/panel/api` | `?key=<ADMIN_TOKEN>` |
+| 面板 | `/panel` | 不要令牌（静态外壳） |
+| 面板接口 | `/panel/api` | `x-admin-token` 头，或 `?key=<ADMIN_TOKEN>`（留给 curl） |
 
 ## 三种令牌
 

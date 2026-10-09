@@ -135,7 +135,7 @@ node:sqlite 是同步 API，会阻塞事件循环。运行日志与 API Key 用�
 
 ### 面板接口形状
 面板只有一个 JSON 端点 /panel/api，动作走 action 查询参数（GET 读、POST 写），
-避免为此引入路径参数路由。管理员令牌用 ?key= 或 X-Admin-Token 传递。
+避免为此引入路径参数路由。管理员令牌用 `X-Admin-Token` 头传递；`?key=` 仅保留给 curl 之类的脚本。面板前端不把令牌放进 URL。
 面板返回的账号视图绝不包含 access_token / refresh_token / api_key 原文，只回布尔与预览。
 
 ### 号池的账号计数

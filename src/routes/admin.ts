@@ -25,8 +25,8 @@ export function createAdminRoutes(ctx: GatewayContext) {
       );
       return;
     }
-    const key = url.searchParams.get("key") ?? "";
-    res.writeHead(302, { location: "/panel" + (key ? "?key=" + encodeURIComponent(key) : ""), "cache-control": "no-store" });
+    /* 不再把令牌拼进 URL：面板自己会问 */
+    res.writeHead(302, { location: "/panel", "cache-control": "no-store" });
     res.end();
   }
 

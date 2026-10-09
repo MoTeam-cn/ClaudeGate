@@ -140,7 +140,7 @@ export function createAuthRoutes(ctx: GatewayContext) {
         htmlEsc(envSnippet(cfg, token)) + "</pre></div>";
       inner += "<div class=\"card\"><h2>网关令牌</h2><pre>" + htmlEsc(token) + "</pre>" +
         "<div class=\"sub\" style=\"margin:10px 0 0\">面板里可以继续加号、发 API Key。删除 data/secret 重启可让全部令牌失效。</div></div>";
-      inner += "<div class=\"card\"><a class=\"btn\" href=\"/panel?key=" + encodeURIComponent(cfg.adminToken) + "\">进入面板</a> " +
+      inner += "<div class=\"card\"><a class=\"btn\" href=\"/panel\">进入面板</a> " +
         "<a class=\"btn\" href=\"/login\" style=\"background:#2a3140\">再登一个号</a></div>";
       sendHtml(res, 200, page("登录成功", inner));
     } catch (e) {

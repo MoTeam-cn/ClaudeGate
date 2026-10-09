@@ -24,7 +24,7 @@ cp .env.example .env    # 至少改 ADMIN_TOKEN 与 PUBLIC_URL
 npm start
 ```
 
-打开 `http://127.0.0.1:8080/panel?key=<ADMIN_TOKEN>` 就是面板。
+打开 `http://127.0.0.1:8080/panel` 就是面板 —— 首次进入会弹窗问管理员令牌，填了存在浏览器本地，之后免填。
 
 Docker：
 

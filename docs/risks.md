@@ -53,7 +53,7 @@ Anthropic 在 2026-02-19 更新了文档，**禁止第三方使用 Free / Pro / 
 | 数据库 | 里面存着账号凭据与 API Key 的 sha256，`data` 目录不要提交进仓库、注意备份权限 |
 | `TRUST_PROXY` | 只有在反代后面才设 true。直接暴露时设 true 会让客户端 IP 可被伪造 |
 | TLS | 网关本身不做 TLS，请由 Caddy / Nginx 终止 |
-| 面板 | 面板地址带 `?key=` 查询参数，注意别让它出现在浏览器历史或日志里 |
+| 面板 | 令牌走 `x-admin-token` 头、只存浏览器 localStorage，不进 URL。用 curl 时才用 `?key=`，那样会留在 shell 历史里 |
 
 ## 能力边界
 
