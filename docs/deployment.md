@@ -3,6 +3,13 @@
 > 镜像基于 `oven/bun`。不是因为 Bun 快，是因为它的 TLS 是 BoringSSL ——
 > 出站 ClientHello 的曲线与点格式才和真 Claude Code 对得上。见[指纹](fingerprint.md)。
 
+依赖锁定用 `bun.lock`（不是 `package-lock.json`）。仓库里两份都留着：
+前者给 CI 的 `test-bun` 与 Docker 构建，后者给 `npm ci`。
+构建走的是 `bun install --frozen-lockfile`，所以 `bun.lock` 必须一起 COPY 进镜像。
+
+CI 里有一条 `docker` 作业会真构建、真起容器、轮询 `/healthz` ——
+只跑 `bun test` 是测不到 COPY 路径、文件权限、`USER bun`、`HEALTHCHECK` 这些的。
+
 ## 系统要求
 
 - Node **22.6+**（Docker 镜像用的是 Node 24）
