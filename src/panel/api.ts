@@ -6,6 +6,7 @@ import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
 import { fetchOauthProfile, profileLabel } from "../pool/profile.ts";
 import { checkEgress } from "../net/ipcheck.ts";
+import { catalogStatus } from "../models.ts";
 import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery, UsageSnapshot } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -199,6 +200,11 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         return;
       }
 
+      /* 模型清单的状态：来源、条数、拉取时间、错误 */
+      case "models.status":
+        sendJson(res, 200, { ok: true, data: catalogStatus(ctx) });
+        return;
+
       case "settings":
         sendJson(res, 200, {
           ok: true,
@@ -365,6 +371,14 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
       }
 
       /* 出口自检。启动时跑过一次，这里是手动再跑 —— 换了代理不用重启就能验 */
+      /* 手动重拉模型目录。平时不刷 —— /v1/models 只读内存 */
+      case "models.refresh": {
+        const st = await ctx.modelCatalog.refresh();
+        ctx.log.info("panel: 模型目录刷新 " + st.entries.length + " 个 source=" + st.source);
+        sendJson(res, 200, { ok: true, data: catalogStatus(ctx) });
+        return;
+      }
+
       case "net.ipcheck": {
         const chk = await checkEgress(cfg, 8000);
         ctx.log.info("panel: 出口自检 " + chk.summary);

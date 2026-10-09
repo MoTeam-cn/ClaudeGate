@@ -10,6 +10,8 @@ import { createLogStore } from "./store/logs.ts";
 import { createSettingsStore } from "./store/settings.ts";
 import { createScheduler } from "./pool/scheduler.ts";
 import { createCredentialManager } from "./pool/credentials.ts";
+import { createModelCatalog } from "./model-catalog.ts";
+import type { ModelCatalogHandle } from "./model-catalog.ts";
 import { createQuotaGuard } from "./middleware/quota.ts";
 import { createAgent, createHttpAgent } from "./upstream.ts";
 import { parseProxySpec, describeProxy } from "./net/proxy.ts";
@@ -57,6 +59,7 @@ export interface Gateway {
   readonly scheduler: Scheduler;
   readonly credentials: CredentialManager;
   readonly quota: QuotaGuard;
+  readonly modelCatalog: ModelCatalogHandle;
   readonly adminKey: AdminKeyHandle;
   readonly warnings: string[];
   readonly routes: { public: PublicRoute[]; api: ApiRoute[] };
@@ -172,6 +175,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
   const scheduler = createScheduler(accounts, log);
   const credentials = createCredentialManager(cfg, log, accounts);
   const quota = createQuotaGuard(keys);
+  const modelCatalog = createModelCatalog(cfg, log);
 
   try {
     cfg.proxy = parseProxySpec(cfg.upstreamProxy);
@@ -184,7 +188,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
   cfg.agent = createAgent(cfg);
   cfg.agentHttp = createHttpAgent(cfg);
 
-  const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota };
+  const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota, modelCatalog };
 
   const admin = createAdminRoutes(ctx);
   const auth = createAuthRoutes(ctx);
@@ -488,6 +492,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
     scheduler,
     credentials,
     quota,
+    modelCatalog,
     adminKey,
     warnings: configWarnings(cfg),
     routes: { public: publicRoutes, api: apiRoutes },

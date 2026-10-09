@@ -193,3 +193,12 @@ node:sqlite 是同步 API，会阻塞事件循环。运行日志与 API Key 用�
 - Console API Key 没有用量接口，改为从响应头观察并落库；面板对这类账号明确显示「查询失败」原因
 - 面板动作新增 account.usage（查用量，可单个或全部）与 account.revive（解除封印，可单个或全部）
 - 手动「启用」一个 exhausted 账号时，同时清空封印，不需要额外点一次恢复
+
+## 模型目录（2026-10-09）
+
+- 来源：`https://downloads.claude.ai/model-catalog/v1/catalog.json`，从 Claude Code 二进制还原。
+- 模块：`src/model-catalog.ts`（拉取 + 解析 + 内存快照 + 磁盘兜底）。
+- `/v1/models` 只读内存快照，不按请求出网；过期时后台刷新。
+- 内置兜底清单与 Claude Code 2.1.293 编译进去的 seed 对齐（22 个模型）。
+- `/v1/messages` 与 `/v1/chat/completions` 校验 model，`MODEL_VALIDATION=off` 可关。
+- 面板「设置 → 模型目录」可看状态与手动重拉。

@@ -108,3 +108,62 @@ data/
 ```
 
 备份直接拷整个目录即可。
+
+## 模型目录
+
+`/v1/models` 返回的清单不再写死在代码里 —— 网关从 **Claude Code 自己用的那份远端目录** 拉取：
+
+```
+https://downloads.claude.ai/model-catalog/v1/catalog.json
+```
+
+这个地址是从 Claude Code 二进制里还原出来的（旁边还有 `schema.json` 定义形状，
+以及 `raw-sig.json` 做 RSASSA-PKCS1-v1_5 / SHA-512 签名校验；网关不验签，只取数据）。
+
+目录里每个模型长这样：
+
+```json
+{ "id": "claude-haiku-4-5", "family": "haiku", "display_name": "Haiku 4.5",
+  "provider_ids": { "first_party": "claude-haiku-4-5-20251001" },
+  "context": { "window": 200000 }, "max_output_tokens": { "default": 32000 } }
+```
+
+`id` 是家族名，`provider_ids.first_party` 才是真正发给上游的 id。
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `MODEL_CATALOG_URL` | `https://downloads.claude.ai/model-catalog/v1/catalog.json` | 目录地址 |
+| `MODEL_CATALOG_TTL_MS` | `21600000`（6 小时） | 多久算过期 |
+| `MODEL_VALIDATION` | `strict` | 消息接口是否校验模型 |
+
+### 缓存怎么走
+
+1. 启动时先从磁盘缓存装上（`<DATA_DIR>/model-catalog.json`），装不上就用内置清单。
+2. 进程内只留一份快照。`/v1/models` **永远读内存**，不会为了这个请求出网。
+3. 快照过期时，下一次访问会**在后台**刷一次，当前请求照旧用旧数据返回。
+4. 拉不到就保留旧清单，并把原因记在面板的「模型目录」卡片上。
+
+面板「设置 → 模型目录」能看到来源、条数、版本、上次拉取时间，也有「重新拉取」按钮。
+
+### 模型校验
+
+`MODEL_VALIDATION=strict`（默认）时，`/v1/messages` 与 `/v1/chat/completions` 的 `model`
+必须在当前清单里，否则：
+
+```json
+{ "type": "error", "error": { "type": "invalid_request_error",
+  "code": "model_not_found", "message": "model \"gpt-9-ultra\" 不在可用模型清单里。…" } }
+```
+
+认这几种写法：
+
+- 家族 id：`claude-opus-5`
+- 规范 id：`claude-haiku-4-5-20251001`
+- 别名：`opus` / `sonnet` / `haiku` / `gpt-4o` …
+- 带 `[1m]` 后缀：`claude-opus-5[1m]`（Claude Code 的 1M 上下文写法）
+- 日期后缀可省：`claude-haiku-4-5` 等价于 `claude-haiku-4-5-20251001`
+
+（最后两条跟 Claude Code 自己一致 —— 它匹配模型时会 `replace(/-\d{8}$/, "")`。）
+
+校验读的是**当前快照**：目录刷新后，新出现的模型立刻可用，消失的立刻被拒。
+想完全关掉就设 `MODEL_VALIDATION=off`。

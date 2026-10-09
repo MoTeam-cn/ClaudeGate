@@ -131,6 +131,9 @@ export function loadConfig(env: Env): Config {
     oauthRolesUrl: env.OAUTH_ROLES_URL ?? PROD.ROLES_URL,
     oauthProfileUrl: env.OAUTH_PROFILE_URL ?? PROD.PROFILE_URL,
     ipCheckUrl: env.IP_CHECK_URL ?? PROD.IP_CHECK_URL,
+    modelCatalogUrl: env.MODEL_CATALOG_URL ?? PROD.MODEL_CATALOG_URL,
+    modelCatalogTtlMs: Number(env.MODEL_CATALOG_TTL_MS ?? 6 * 3600 * 1000),
+    modelValidation: String(env.MODEL_VALIDATION ?? "strict").toLowerCase() === "off" ? "off" : "strict",
     /* 默认 block：代理没生效就直接不让起。设 IP_CHECK=off 关掉 */
     ipCheckMode: ((): "off" | "warn" | "block" => {
       const raw = String(env.IP_CHECK ?? "block").trim().toLowerCase();
@@ -138,7 +141,7 @@ export function loadConfig(env: Env): Config {
     })(),
     apiKeyUrl: env.API_KEY_URL ?? PROD.API_KEY_URL,
 
-    defaultModel: env.DEFAULT_MODEL ?? "claude-sonnet-4-5-20250929",
+    defaultModel: env.DEFAULT_MODEL ?? "claude-sonnet-5",
     maxTokensDefault: num(env.MAX_TOKENS_DEFAULT, 8192),
     logLevel
   };

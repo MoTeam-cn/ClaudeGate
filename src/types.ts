@@ -11,6 +11,7 @@ import type { SettingsStore } from "./store/settings.ts";
 import type { Scheduler } from "./pool/scheduler.ts";
 import type { CredentialManager } from "./pool/credentials.ts";
 import type { QuotaGuard } from "./middleware/quota.ts";
+import type { ModelCatalogHandle } from "./model-catalog.ts";
 
 /* 存储与调度的接口在这里转出，消费方只需要认 types.ts 一个入口 */
 export type { Database } from "./store/db.ts";
@@ -91,6 +92,12 @@ export interface Config {
   oauthProfileUrl: string;
   /** 出口自检用的 IP 回显服务 */
   ipCheckUrl: string;
+  /** Claude Code 的模型目录地址 */
+  modelCatalogUrl: string;
+  /** 目录缓存多久算过期（毫秒） */
+  modelCatalogTtlMs: number;
+  /** 消息接口的模型校验：strict 不在目录里就报错 / off 放行 */
+  modelValidation: "strict" | "off";
   /** 出口自检模式：off / warn / block */
   ipCheckMode: "off" | "warn" | "block";
   apiKeyUrl: string;
@@ -194,6 +201,7 @@ export interface GatewayContext {
   scheduler: Scheduler;
   credentials: CredentialManager;
   quota: QuotaGuard;
+  modelCatalog: ModelCatalogHandle;
 }
 
 export interface UpstreamResponse {

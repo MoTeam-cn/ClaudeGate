@@ -5,6 +5,7 @@ import { readJson } from "../http/body.ts";
 import { requestIdOf, getTracker } from "../http/context.ts";
 import { inspectPayload } from "../security/inspect.ts";
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
+import { checkModelAllowed } from "../models.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { isUpstreamError } from "../types.ts";
 import type { AnthropicResponse, AuthState, GatewayContext } from "../types.ts";
@@ -56,6 +57,19 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
         tracker.blockDetail = policy.reason ?? null;
       }
       rejectPolicy(res, policy.code ?? "policy_rejected", policy.reason ?? "rejected");
+      return;
+    }
+
+    /* 模型必须在 /v1/models 那份清单里 */
+    const mcheck = checkModelAllowed(ctx, model);
+    if (!mcheck.ok) {
+      if (tracker) {
+        tracker.outcome = "blocked";
+        tracker.blockReason = "model_not_found";
+        tracker.blockDetail = mcheck.reason;
+      }
+      log.warn("[" + (requestIdOf(res) ?? "-") + "] 模型不在清单里：" + String(model));
+      anthropicError(res, 400, mcheck.reason, "invalid_request_error", "model_not_found");
       return;
     }
 

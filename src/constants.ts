@@ -9,6 +9,8 @@ export const PROD = {
   ROLES_URL: "https://api.anthropic.com/api/oauth/claude_cli/roles",
   PROFILE_URL: "https://api.anthropic.com/api/oauth/profile",
   IP_CHECK_URL: "https://ipinfo.io/json",
+  /* Claude Code 的模型目录。catalog.json 是数据，schema.json 是形状定义 */
+  MODEL_CATALOG_URL: "https://downloads.claude.ai/model-catalog/v1/catalog.json",
   MANUAL_REDIRECT_URL: "https://platform.claude.com/oauth/code/callback",
   CLAUDEAI_SUCCESS_URL: "https://platform.claude.com/oauth/code/success?app=claude-code",
   CLIENT_ID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
@@ -121,44 +123,75 @@ export const USER_ID_MODES: readonly string[] = ["off", "device", "full"];
 
 export const TRANSPORT_MODES: readonly string[] = ["auto", "https", "fetch"];
 
+/**
+ * 一个模型。字段名跟 Claude Code 内置目录（seed catalog）对齐 ——
+ * 那份目录里每个模型是 { id, family, display_name, provider_ids: { first_party, ... } }，
+ * 其中 provider_ids.first_party 才是真正发给上游的 id。
+ */
 export interface ModelInfo {
+  /** 家族 id，比如 claude-opus-5。Claude Code 的模型选择器用的就是它 */
   id: string;
+  /** 给人看的名字，比如 Opus 5 */
   label: string;
-  tier: "opus" | "sonnet" | "haiku";
+  family: string;
+  /** 发给上游的规范 id；老模型带日期后缀，跟家族 id 不同 */
+  firstParty: string;
 }
 
 export const MODEL_CATALOG: readonly ModelInfo[] = [
-  { id: "claude-opus-4-5-20251101", label: "Claude Opus 4.5", tier: "opus" },
-  { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", tier: "opus" },
-  { id: "claude-opus-4-20250514", label: "Claude Opus 4", tier: "opus" },
-  { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", tier: "sonnet" },
-  { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", tier: "sonnet" },
-  { id: "claude-3-7-sonnet-20250219", label: "Claude Sonnet 3.7", tier: "sonnet" },
-  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", tier: "haiku" },
-  { id: "claude-3-5-haiku-20241022", label: "Claude Haiku 3.5", tier: "haiku" }
+  { id: "claude-opus-5-5", label: "Opus 5.5", family: "opus", firstParty: "claude-opus-5-5" },
+  { id: "claude-opus-5", label: "Opus 5", family: "opus", firstParty: "claude-opus-5" },
+  { id: "claude-opus-4-8", label: "Opus 4.8", family: "opus", firstParty: "claude-opus-4-8" },
+  { id: "claude-opus-4-7", label: "Opus 4.7", family: "opus", firstParty: "claude-opus-4-7" },
+  { id: "claude-opus-4-6", label: "Opus 4.6", family: "opus", firstParty: "claude-opus-4-6" },
+  { id: "claude-opus-4-5", label: "Opus 4.5", family: "opus", firstParty: "claude-opus-4-5-20251101" },
+  { id: "claude-opus-4-1", label: "Opus 4.1", family: "opus", firstParty: "claude-opus-4-1-20250805" },
+  { id: "claude-opus-4-0", label: "Opus 4", family: "opus", firstParty: "claude-opus-4-20250514" },
+  { id: "claude-sonnet-5-5", label: "Sonnet 5.5", family: "sonnet", firstParty: "claude-sonnet-5-5" },
+  { id: "claude-sonnet-5", label: "Sonnet 5", family: "sonnet", firstParty: "claude-sonnet-5" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", firstParty: "claude-sonnet-4-6" },
+  { id: "claude-sonnet-4-5", label: "Sonnet 4.5", family: "sonnet", firstParty: "claude-sonnet-4-5-20250929" },
+  { id: "claude-sonnet-4-0", label: "Sonnet 4", family: "sonnet", firstParty: "claude-sonnet-4-20250514" },
+  { id: "claude-3-7-sonnet", label: "Sonnet 3.7", family: "sonnet", firstParty: "claude-3-7-sonnet-20250219" },
+  { id: "claude-3-5-sonnet", label: "Sonnet 3.5", family: "sonnet", firstParty: "claude-3-5-sonnet-20241022" },
+  { id: "claude-haiku-5-5", label: "Haiku 5.5", family: "haiku", firstParty: "claude-haiku-5-5" },
+  { id: "claude-haiku-4-5", label: "Haiku 4.5", family: "haiku", firstParty: "claude-haiku-4-5-20251001" },
+  { id: "claude-3-5-haiku", label: "Haiku 3.5", family: "haiku", firstParty: "claude-3-5-haiku-20241022" },
+  { id: "claude-fable-5-1", label: "Fable 5.1", family: "fable", firstParty: "claude-fable-5-1" },
+  { id: "claude-fable-5", label: "Fable 5", family: "fable", firstParty: "claude-fable-5" },
+  { id: "claude-mythos-5-1", label: "Mythos 5.1", family: "mythos", firstParty: "claude-mythos-5-1" },
+  { id: "claude-mythos-5", label: "Mythos 5", family: "mythos", firstParty: "claude-mythos-5" },
 ];
 
 export const MODEL_ALIASES: Readonly<Record<string, string>> = {
-  opus: "claude-opus-4-5-20251101",
-  sonnet: "claude-sonnet-4-5-20250929",
+  /* 三个短别名指向当前代 */
+  opus: "claude-opus-5",
+  sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5-20251001",
-  "claude-3-5-sonnet-latest": "claude-sonnet-4-5-20250929",
-  "claude-3-5-sonnet": "claude-sonnet-4-5-20250929",
-  "claude-3-5-sonnet-20241022": "claude-3-5-haiku-20241022",
-  "claude-3-opus": "claude-opus-4-5-20251101",
-  "claude-3-haiku": "claude-haiku-4-5-20251001",
-  "gpt-4o": "claude-sonnet-4-5-20250929",
+  /* 历史别名：老客户端可能还在发这些 */
+  "claude-3-5-sonnet-latest": "claude-sonnet-5",
+  "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+  "claude-3-5-sonnet-20241022": "claude-3-5-sonnet-20241022",
+  "claude-3-opus": "claude-opus-5",
+  "claude-3-haiku": "claude-3-5-haiku-20241022",
+  "claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+  "claude-sonnet-4-latest": "claude-sonnet-4-6",
+  "claude-opus-4-latest": "claude-opus-4-8",
+  "claude-opus-4-1-latest": "claude-opus-4-1-20250805",
+  "claude-haiku-latest": "claude-haiku-4-5-20251001",
+  /* OpenAI 那边的名字，方便直接换 base_url */
+  "gpt-4o": "claude-sonnet-5",
   "gpt-4o-mini": "claude-haiku-4-5-20251001",
-  "gpt-4-turbo": "claude-sonnet-4-5-20250929",
-  "gpt-4": "claude-sonnet-4-5-20250929",
-  "gpt-4.1": "claude-sonnet-4-5-20250929",
+  "gpt-4-turbo": "claude-sonnet-5",
+  "gpt-4": "claude-sonnet-5",
+  "gpt-4.1": "claude-sonnet-5",
   "gpt-4.1-mini": "claude-haiku-4-5-20251001",
   "gpt-3.5-turbo": "claude-haiku-4-5-20251001",
-  "gpt-5": "claude-opus-4-5-20251101",
-  "gpt-5-mini": "claude-sonnet-4-5-20250929",
-  o1: "claude-opus-4-5-20251101",
-  "o1-mini": "claude-sonnet-4-5-20250929",
-  o3: "claude-opus-4-5-20251101",
-  "o3-mini": "claude-sonnet-4-5-20250929",
-  "o4-mini": "claude-sonnet-4-5-20250929"
+  "gpt-5": "claude-opus-5",
+  "gpt-5-mini": "claude-sonnet-5",
+  o1: "claude-opus-5",
+  "o1-mini": "claude-sonnet-5",
+  o3: "claude-opus-5",
+  "o3-mini": "claude-sonnet-5",
+  "o4-mini": "claude-sonnet-5"
 };

@@ -181,8 +181,8 @@ async function main(): Promise<void> {
   const upstreamBody = JSON.parse(upstream.last?.body ?? "{}") as Record<string, unknown>;
   eq("OpenAI 200", oai.status, 200);
   eq("OpenAI object", oaiJson.object, "chat.completion");
-  eq("gpt-4o 映射", oaiJson.model, "claude-sonnet-4-5-20250929");
-  eq("上游 model 已映射", upstreamBody.model, "claude-sonnet-4-5-20250929");
+  eq("gpt-4o 映射", oaiJson.model, "claude-sonnet-5");
+  eq("上游 model 已映射", upstreamBody.model, "claude-sonnet-5");
   eq("system 已提取", upstreamBody.system, "be brief");
   eq("tools 已转换", (upstreamBody.tools as Array<Record<string, unknown>>)[0].name, "get_weather");
   eq("finish_reason 映射", choice0.finish_reason, "tool_calls");
@@ -224,7 +224,10 @@ async function main(): Promise<void> {
   const models = await request(port, "/v1/models", { headers: ccHeaders() });
   eq("models 200", models.status, 200);
   eq("models object", asRecord(models.json).object, "list");
-  ok("models 含 opus", models.text.includes("claude-opus-4-5-20251101"));
+  ok("models 含最新的 Opus 5.5", models.text.includes("claude-opus-5-5"), models.text.slice(0, 200));
+  ok("models 含 Opus 5", models.text.includes("claude-opus-5"));
+  ok("models 含 Sonnet 5", models.text.includes("claude-sonnet-5"));
+  ok("models 不再只有老模型", !/^.*"data":\[\{"id":"claude-3-7-sonnet".*$/.test(models.text.split("data")[1]?.slice(0, 40) ?? ""));
 
   const nf = await request(port, "/v1/nope", { headers: ccHeaders(), body: {} });
   eq("未知 v1 端点 404", nf.status, 404);
@@ -244,7 +247,7 @@ async function main(): Promise<void> {
   eq("不支持的 grant 400", badGrant.status, 400);
 
   console.log("\n=== 8. 纯函数 ===");
-  eq("resolveModel sonnet", resolveModel("sonnet", { defaultModel: "d" } as never), "claude-sonnet-4-5-20250929");
+  eq("resolveModel sonnet", resolveModel("sonnet", { defaultModel: "d" } as never), "claude-sonnet-5");
   eq("resolveModel 透传", resolveModel("claude-opus-4-5-20251101", { defaultModel: "d" } as never), "claude-opus-4-5-20251101");
   eq("resolveModel 未知回落", resolveModel("zzz", { defaultModel: "d" } as never), "d");
 

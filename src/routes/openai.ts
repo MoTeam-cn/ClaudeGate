@@ -8,7 +8,7 @@ import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { openaiToAnthropic } from "../translate/openai-in.ts";
 import { anthropicToOpenai, streamAnthropicToOpenai } from "../translate/openai-out.ts";
-import { listModels } from "../models.ts";
+import { listModels, checkModelAllowed } from "../models.ts";
 import { bool, safeJson } from "../utils.ts";
 import { isUpstreamError } from "../types.ts";
 import type { AnthropicResponse, AuthState, GatewayContext, OpenAIChatRequest } from "../types.ts";
@@ -68,6 +68,19 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
       }
       log.warn("[" + (requestIdOf(res) ?? "-") + "] policy reject: " + (policy.code ?? ""));
       openaiError(res, 403, policy.reason ?? "rejected", "permission_error", policy.code ?? "policy_rejected");
+      return;
+    }
+
+    /* 模型必须在 /v1/models 那份清单里 */
+    const mcheck = checkModelAllowed(ctx, requested);
+    if (!mcheck.ok) {
+      if (tracker) {
+        tracker.outcome = "blocked";
+        tracker.blockReason = "model_not_found";
+        tracker.blockDetail = mcheck.reason;
+      }
+      log.warn("[" + (requestIdOf(res) ?? "-") + "] 模型不在清单里：" + String(requested));
+      openaiError(res, 400, mcheck.reason, "invalid_request_error", "model_not_found");
       return;
     }
 
@@ -146,7 +159,9 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
 
   /** GET /v1/models */
   function models(req: IncomingMessage, res: ServerResponse): void {
-    sendJson(res, 200, { object: "list", data: listModels() });
+    /* ensure() 只在缓存过期时后台刷一次，这个请求永远读内存 */
+    const snapshot = ctx.modelCatalog.ensure();
+    sendJson(res, 200, { object: "list", data: listModels(ctx), catalog: { source: snapshot.source, fetchedAt: snapshot.fetchedAt, version: snapshot.version, error: snapshot.error } });
   }
 
   return { chat, models };
