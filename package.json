@@ -23,7 +23,9 @@
     "test:proxy": "node test/proxy.test.ts",
     "test:headers": "node test/headers.test.ts",
     "start:bun": "bun src/index.ts",
-    "test:bun": "bun test/run-all.ts"
+    "test:bun": "bun test/run-all.ts",
+    "test:agent": "node test/agent.test.ts",
+    "test:panel": "node test/panel.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

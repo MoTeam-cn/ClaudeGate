@@ -206,82 +206,257 @@ function emptyState(text){
   ]);
 }
 
+/* ============ 就地编辑 ============ */
+/** 点一下就变成输入框。Enter 或失焦保存，Esc 取消。 */
+function inlineEdit(value, onSave, opt){
+  opt = opt || {};
+  var span = h("span",{class:"cg-inline",title:opt.title||"点击修改",text:String(value)});
+  span.addEventListener("click", function(){
+    if(span.__editing) return;
+    span.__editing = true;
+    var input = h("input",{class:"el-input__inner",value:String(value),placeholder:opt.placeholder||""});
+    input.style.height = "24px";
+    input.style.fontSize = "var(--el-font-size-extra-small)";
+    var wrap = h("span",{class:"cg-inline-edit"},[input]);
+    span.parentNode.replaceChild(wrap, span);
+    input.focus();
+    input.select();
+    var done = false;
+    function finish(save){
+      if(done) return;
+      done = true;
+      var next = String(input.value).trim();
+      if(!save || !next || next === String(value)){
+        if(wrap.parentNode) wrap.parentNode.replaceChild(span, wrap);
+        span.__editing = false;
+        return;
+      }
+      input.disabled = true;
+      Promise.resolve(onSave(next)).then(function(){
+        span.textContent = next;
+        value = next;
+        if(wrap.parentNode) wrap.parentNode.replaceChild(span, wrap);
+        span.__editing = false;
+      }).catch(function(e){
+        showErr(e);
+        if(wrap.parentNode) wrap.parentNode.replaceChild(span, wrap);
+        span.__editing = false;
+      });
+    }
+    input.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); finish(true); }
+      else if(e.key === "Escape"){ e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", function(){ finish(true); });
+  });
+  return span;
+}
+
 /* ============ 表格 ============ */
-/** columns: [{key,label,sortable,render(row),width,cls}] */
+/**
+ * columns: [{key,label,sortable,render(row),filter,filterValue,wrap,clamp,width}]
+ * filter:  {type:"text"} | {type:"select",options:[...]} | {type:"slot",el:元素}
+ * opt:     {sortKey,sortDir,striped,emptyText,rowClass,rowId,selectable,batchActions}
+ *
+ * 筛选只在客户端做，所以只对不分页的表（号池 / API Key）是准的；
+ * 分页的日志表用 filter:{type:"slot"} 把控件挂到对应列下面，由调用方转成服务端查询。
+ */
 function table(columns, rows, opt){
   opt = opt || {};
   var state = { key:opt.sortKey||null, dir:opt.sortDir||"desc" };
-  var wrap = h("div",{class:"el-table-wrap"});
-  var tbl = h("table",{class:"el-table"+(opt.striped===false?"":" el-table--striped")});
-  var thead = h("thead");
-  var trh = h("tr");
+  var filters = {};
+  var selected = {};
+  var idOf = opt.rowId || function(r){ return r.id; };
 
-  function sortRows(){
-    if(!state.key) return rows;
-    var col = null;
-    for(var i=0;i<columns.length;i++) if(columns[i].key===state.key) col=columns[i];
-    if(!col) return rows;
+  function colOf(key){
+    for(var i=0;i<columns.length;i++) if(columns[i].key===key) return columns[i];
+    return null;
+  }
+  function filterRows(list){
+    var keys = Object.keys(filters);
+    if(!keys.length) return list;
+    return list.filter(function(r){
+      for(var i=0;i<keys.length;i++){
+        var want = filters[keys[i]];
+        if(!want) continue;
+        var col = colOf(keys[i]);
+        var get = (col && col.filterValue) || function(x){ return x[keys[i]]; };
+        var v = get(r);
+        v = (v===null||v===undefined) ? "" : String(v);
+        if(col && col.filter && col.filter.type === "select"){
+          if(v !== want) return false;
+        } else if(v.toLowerCase().indexOf(String(want).toLowerCase()) === -1){
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+  function sortRows(list){
+    if(!state.key) return list;
+    var col = colOf(state.key);
+    if(!col) return list;
     var get = col.sortValue || function(r){ return r[col.key]; };
-    var copy = rows.slice();
+    var copy = list.slice();
     copy.sort(function(a,b){
-      var x=get(a), y=get(b);
-      if(x===null||x===undefined) x="";
-      if(y===null||y===undefined) y="";
+      var x = get(a), y = get(b);
+      if(x===null||x===undefined) x = "";
+      if(y===null||y===undefined) y = "";
       var n = (typeof x==="number" && typeof y==="number") ? x-y : String(x).localeCompare(String(y));
-      return state.dir==="asc" ? n : -n;
+      return state.dir === "asc" ? n : -n;
     });
     return copy;
   }
+  function selectedIds(){ return Object.keys(selected).filter(function(k){ return selected[k]; }); }
+
+  var wrap = h("div",{class:"el-table-wrap"});
+  var bar = h("div",{class:"cg-batchbar hidden"});
+  var tbl = h("table",{class:"el-table"+(opt.striped===false?"":" el-table--striped")});
+
   function paint(){
     clear(tbl);
-    clear(trh);
+    var thead = h("thead");
+    var trh = h("tr");
+    var trf = h("tr",{class:"cg-filterrow"});
+    var hasFilter = false;
+
+    if(opt.selectable){
+      var th0 = h("th",{class:"cg-col-check"});
+      var all = filterRows(rows);
+      var allOn = all.length > 0 && all.every(function(r){ return selected[idOf(r)]; });
+      var master = h("input",{type:"checkbox"});
+      master.checked = allOn;
+      master.addEventListener("change", function(){
+        all.forEach(function(r){ if(master.checked) selected[idOf(r)] = true; else delete selected[idOf(r)]; });
+        paint();
+      });
+      th0.appendChild(master);
+      trh.appendChild(th0);
+      trf.appendChild(h("td"));
+      hasFilter = true;
+    }
+
     columns.forEach(function(c){
-      var th = h("th",{ class:(c.sortable?"is-sortable":"") + (state.key===c.key?" is-sorted":"") });
+      var th = h("th",{class:(c.sortable?"is-sortable":"") + (state.key===c.key?" is-sorted":"")});
       th.appendChild(h("span",{text:c.label}));
       if(c.sortable){
         th.appendChild(h("span",{class:"caret",text: state.key===c.key ? (state.dir==="asc"?"▲":"▼") : "⇅"}));
         th.addEventListener("click", function(){
-          if(state.key===c.key) state.dir = state.dir==="asc"?"desc":"asc";
+          if(state.key === c.key) state.dir = state.dir === "asc" ? "desc" : "asc";
           else { state.key = c.key; state.dir = "desc"; }
           paint();
         });
       }
       if(c.width) th.style.width = c.width;
       trh.appendChild(th);
-    });
-    thead.appendChild(trh);
-    tbl.appendChild(thead);
 
-    var tbody = h("tbody");
-    var list = sortRows();
-    if(list.length===0){
-      var td = h("td",{class:"el-table__empty",colspan:String(columns.length)});
-      td.appendChild(emptyState(opt.emptyText||"暂无数据"));
-      var tre = h("tr"); tre.appendChild(td); tbody.appendChild(tre);
-    } else {
-      list.forEach(function(row){
-        var tr = h("tr");
-        if(opt.rowClass){ var rc = opt.rowClass(row); if(rc) tr.className = rc; }
-        columns.forEach(function(c){
-          var td2 = h("td");
-          var cell = h("div",{class:"cell" + (c.wrap?" wrap":"") + (c.clamp?" clamp":"")});
-          var v = c.render ? c.render(row) : row[c.key];
-          if(v && v.nodeType) cell.appendChild(v);
-          else cell.textContent = (v===null||v===undefined||v==="") ? "-" : String(v);
-          td2.appendChild(cell);
-          if(c.title) td2.title = c.title(row);
-          tr.appendChild(td2);
-        });
-        tbody.appendChild(tr);
-      });
-    }
-    tbl.appendChild(tbody);
+      /* 每一列都要补一个 td，哪怕没有筛选控件——否则筛选行会整体错位 */
+      var td = h("td");
+      if(c.filter){
+        hasFilter = true;
+        if(c.filter.type === "slot"){
+          td.appendChild(c.filter.el);
+        } else if(c.filter.type === "select"){
+          var sel = h("select",{class:"el-input__inner cg-colfilter"},[ h("option",{value:"",text:c.filter.placeholder||"全部"}) ]);
+          (c.filter.options||[]).forEach(function(o){ sel.appendChild(h("option",{value:o.value,text:o.label})); });
+          sel.value = filters[c.key] || "";
+          sel.addEventListener("change", function(){ filters[c.key] = sel.value; paint(); });
+          td.appendChild(sel);
+        } else {
+          var inp = h("input",{class:"el-input__inner cg-colfilter",placeholder:c.filter.placeholder||"筛选"});
+          inp.value = filters[c.key] || "";
+          inp.addEventListener("input", function(){ filters[c.key] = inp.value; repaintRows(); });
+          td.appendChild(inp);
+        }
+      }
+      trf.appendChild(td);
+    });
+
+    thead.appendChild(trh);
+    if(hasFilter) thead.appendChild(trf);
+    tbl.appendChild(thead);
+    tbl.appendChild(body());
+    paintBar();
   }
+
+  /* 只重画 tbody，输入框不丢焦点 */
+  function repaintRows(){
+    var old = tbl.querySelector("tbody");
+    if(old) tbl.replaceChild(body(), old);
+    paintBar();
+  }
+
+  function body(){
+    var tbody = h("tbody");
+    var list = sortRows(filterRows(rows));
+    if(list.length === 0){
+      var td = h("td",{class:"el-table__empty",colspan:String(columns.length + (opt.selectable?1:0))});
+      td.appendChild(emptyState(rows.length ? "没有符合筛选的行" : (opt.emptyText||"暂无数据")));
+      var tre = h("tr"); tre.appendChild(td); tbody.appendChild(tre);
+      return tbody;
+    }
+    list.forEach(function(row){
+      var tr = h("tr");
+      if(opt.rowClass){ var rc = opt.rowClass(row); if(rc) tr.className = rc; }
+      var rid = idOf(row);
+      if(opt.selectable){
+        var tdc = h("td",{class:"cg-col-check"});
+        var cb = h("input",{type:"checkbox"});
+        cb.checked = !!selected[rid];
+        cb.addEventListener("change", function(){
+          if(cb.checked) selected[rid] = true; else delete selected[rid];
+          tr.className = (opt.rowClass ? (opt.rowClass(row)||"") : "") + (cb.checked ? " is-selected" : "");
+          paintBar();
+          var head = tbl.querySelector("thead input[type=checkbox]");
+          if(head){ var vis = filterRows(rows); head.checked = vis.length>0 && vis.every(function(r){ return selected[idOf(r)]; }); }
+        });
+        tdc.appendChild(cb);
+        tr.appendChild(tdc);
+      }
+      columns.forEach(function(c){
+        var td2 = h("td");
+        var cell = h("div",{class:"cell" + (c.wrap?" wrap":"") + (c.clamp?" clamp":"")});
+        var v = c.render ? c.render(row) : row[c.key];
+        if(v && v.nodeType) cell.appendChild(v);
+        else cell.textContent = (v===null||v===undefined||v==="") ? "-" : String(v);
+        td2.appendChild(cell);
+        if(c.title) td2.title = c.title(row);
+        tr.appendChild(td2);
+      });
+      tbody.appendChild(tr);
+    });
+    return tbody;
+  }
+
+  function paintBar(){
+    if(!opt.selectable || !opt.batchActions) return;
+    var ids = selectedIds();
+    clear(bar);
+    if(!ids.length){ bar.className = "cg-batchbar hidden"; return; }
+    bar.className = "cg-batchbar";
+    bar.appendChild(h("span",{class:"cg-batchbar__n",text:"已选 " + ids.length + " 项"}));
+    opt.batchActions.forEach(function(b){
+      bar.appendChild(h("button",{
+        class:"el-button el-button--small" + (b.type ? " el-button--" + b.type : ""),
+        text:b.label,
+        onclick:function(){
+          Promise.resolve(b.run(ids)).then(function(){
+            if(b.keep!==true) selected = {};
+            paint();
+          }).catch(showErr);
+        }
+      }));
+    });
+    bar.appendChild(h("button",{class:"el-button el-button--small el-button--text",text:"取消选择",onclick:function(){ selected = {}; paint(); }}));
+  }
+
   paint();
   wrap.appendChild(tbl);
   var host = h("div");
+  host.appendChild(bar);
   host.appendChild(wrap);
   host.repaint = paint;
+  host.selectedIds = selectedIds;
   return host;
 }
 
@@ -377,6 +552,7 @@ window.CG = {
   lastData:lastData, getToken:function(){ return TOKEN; }
 };
 window.CG.switchBox = switchBox;
+window.CG.inlineEdit = inlineEdit;
 window.CG.switchBox = switchBox;
 window.CG.clearRefreshers = clearRefreshers;
 window.CG.toggleTheme = toggleTheme;

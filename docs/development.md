@@ -9,6 +9,8 @@ npm run typecheck   # tsc --noEmit
 npm test            # 全部测试
 npm run build       # 产出 dist/，之后 node dist/src/index.js
 npm run test:stream # 流式真实性探针：记录每个分片到达时刻
+npm run test:bun    # 整套测试跑在 Bun 上（TLS 指纹对齐的前提）
+npm run start:bun   # 用 Bun 直跑（不用编译）
 ```
 
 单独的测试套件：
@@ -20,6 +22,8 @@ npm run test:pool      # 号池 CRUD、调度粘性/轮询/故障转移、面板
 npm run test:usage     # token 计数、用量归一化、额度耗尽与恢复
 npm run test:headers   # 上游请求头保真度
 npm run test:proxy     # 四种出站代理
+npm run test:agent     # 运行时证据：node:sqlite 与代理 Agent 猴补丁
+npm run test:panel     # 面板：渲染产物、脚本可解析、前后端 action 契约、HTTP 层
 ```
 
 ## 测试构成
@@ -34,7 +38,9 @@ npm run test:proxy     # 四种出站代理
 | headers | 29 | beta 并集、头顺序逐位一致、凭据头原地改名、第三方客户端补规范头 |
 | proxy | 27 | CONNECT 与 SOCKS5、认证、域名解析策略、故障 |
 | transport | 6（Node）/ 10（Bun） | 默认通道保头序、fetch 通道的已知代价 |
-| **合计** | **404**（Node）/ **408**（Bun） | |
+| agent | 17 | node:sqlite（WAL / busy_timeout / 事务 / 主键冲突）与代理 Agent 猴补丁在当前运行时真的生效 |
+| panel | 57 | 渲染产物完整、内联脚本可解析、前端调用的 action 后端都处理、六个痛点的实现特征都在、HTTP 层鉴权与读写 |
+| **合计** | **478**（Node）/ **482**（Bun） | |
 
 测试全部监听 0 端口（随机端口），互不冲突，可以并行跑。
 

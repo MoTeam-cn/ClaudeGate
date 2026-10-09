@@ -300,8 +300,26 @@ select.el-input__inner{appearance:none;background-image:linear-gradient(45deg,tr
 .cg-stack{display:flex;flex-direction:column;gap:8px}
 .cg-code{background:var(--el-fill-color-light);border:1px solid var(--el-border-color-lighter);border-radius:var(--el-border-radius-base);padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--el-font-size-extra-small);white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto}
 
+
+/* ============ 列筛选 / 批量选择 / 就地编辑 ============ */
+.el-table .cg-filterrow th,.el-table .cg-filterrow td{padding:4px 8px;background:var(--el-bg-color-overlay);border-bottom:1px solid var(--el-border-color-lighter);position:sticky;top:37px;z-index:1}
+.el-table .cg-filterrow td{padding:4px 6px}
+.cg-colfilter{height:26px!important;font-size:var(--el-font-size-extra-small)!important;padding:0 7px!important;min-width:70px;width:100%}
+select.cg-colfilter{padding-right:20px!important;background-position:calc(100% - 12px) 11px,calc(100% - 8px) 11px!important}
+.el-table .cg-col-check{width:34px;padding-left:10px;padding-right:0}
+.el-table .cg-col-check input{width:14px;height:14px;cursor:pointer;accent-color:var(--el-color-primary)}
+.el-table tbody tr.is-selected td{background:var(--el-color-primary-light-9)!important}
+.cg-batchbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;margin-bottom:8px;border-radius:var(--el-border-radius-base);background:var(--el-color-primary-light-9);border:1px solid var(--el-color-primary-light-8)}
+.cg-batchbar__n{font-size:var(--el-font-size-small);color:var(--el-color-primary);font-weight:500;margin-right:4px}
+.cg-inline{cursor:text;border-bottom:1px dashed transparent;transition:border-color var(--el-transition-duration-fast)}
+.cg-inline:hover{border-bottom-color:var(--el-border-color-darker)}
+.cg-inline-edit{display:inline-block;min-width:120px}
+.cg-inline-edit .el-input__inner{height:24px;font-size:var(--el-font-size-extra-small);padding:0 7px}
+
 /* ============ 移动端 ============ */
 @media (max-width:900px){
+  .el-table .cg-filterrow th,.el-table .cg-filterrow td{position:static}
+  .cg-inline-edit{min-width:90px}
   :root{--cg-content-pad:12px}
   .cg-side{
     position:fixed;z-index:2001;transform:translateX(-100%);

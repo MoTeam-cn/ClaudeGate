@@ -165,18 +165,35 @@ function renderAccounts(box){
     h("button",{class:"el-button",text:"批量导入",onclick:openBatchImport}),
     h("button",{class:"el-button",text:"全部查用量",onclick:actFetchUsageAll})
   ];
+  /* 状态筛选用文本值，和状态标签一一对应 */
+  function statusKey(a){
+    if(a.status==="exhausted") return "额度耗尽";
+    if(a.status==="error") return "出错";
+    if(a.status==="disabled") return "已停用";
+    if(a.cooldownUntil && a.cooldownUntil*1000>Date.now()) return "冷却中";
+    return "可用";
+  }
   CG.onRefresh(function(){
     return CG.api("accounts").then(function(list){
       CG.clear(host);
       var cols = [
-        { key:"label", label:"账号", sortable:true, render:function(a){
+        { key:"label", label:"账号", sortable:true,
+          filter:{type:"text",placeholder:"搜账号"},
+          filterValue:function(a){ return a.label + " " + (a.email||"") + " " + a.kind; },
+          render:function(a){
             var box2 = h("div",{class:"cg-stack",style:{gap:"3px"}});
-            box2.appendChild(h("div",{},[ h("b",{text:a.label}) ]));
+            /* 就地改名：点一下变输入框，Enter 或失焦保存 */
+            box2.appendChild(h("div",{},[
+              CG.inlineEdit(a.label, function(next){ return actRenameAccount(a.id, next); }, {title:"点击改备注名"})
+            ]));
             box2.appendChild(h("div",{class:"tiny muted",text:(a.kind==="oauth"?"订阅 OAuth":"Console Key")+(a.email?" · "+a.email:"")}));
             if(a.lastError) box2.appendChild(h("div",{class:"tiny",style:{color:"var(--el-color-danger)"},text:a.lastError.slice(0,80)}));
             return box2;
           } },
-        { key:"status", label:"状态", sortable:true, render:function(a){
+        { key:"status", label:"状态", sortable:true,
+          filter:{type:"select",placeholder:"全部",options:["可用","冷却中","额度耗尽","已停用","出错"].map(function(s){ return {value:s,label:s}; })},
+          filterValue:statusKey,
+          render:function(a){
             var box2 = h("div",{class:"cg-stack",style:{gap:"4px"}});
             box2.appendChild(statusTag(a));
             if(a.exhaustedUntil) box2.appendChild(h("div",{class:"tiny muted",text:"恢复 "+CG.fmtTime(a.exhaustedUntil*1000)}));
@@ -186,7 +203,9 @@ function renderAccounts(box){
         { key:"usage", label:"用量", render:function(a){ return usageCell(a); } },
         { key:"requestCount", label:"请求", sortable:true, render:function(a){ return CG.fmtNum(a.requestCount); } },
         { key:"errorCount", label:"错误", sortable:true, render:function(a){ return CG.fmtNum(a.errorCount); } },
-        { key:"deviceId", label:"设备指纹", render:function(a){
+        { key:"deviceId", label:"设备指纹", filter:{type:"text",placeholder:"搜指纹"},
+          filterValue:function(a){ return a.deviceId || ""; },
+          render:function(a){
             return a.deviceId
               ? h("span",{class:"mono tiny",title:a.deviceId,text:a.deviceId.slice(0,10)+"…"})
               : h("span",{class:"muted tiny",text:"待生成"});
@@ -201,8 +220,56 @@ function renderAccounts(box){
             return box2;
           } }
       ];
-      host.appendChild(card("号池（"+list.length+" 个）", CG.table(cols, list, { emptyText:"号池是空的，先添加一个账号" }), actions));
+      host.appendChild(card("号池（"+list.length+" 个）", CG.table(cols, list, {
+        emptyText:"号池是空的，先添加一个账号",
+        selectable:true,
+        rowId:function(a){ return a.id; },
+        batchActions:[
+          { label:"批量启用", run:function(ids){ return actBatchStatus(ids, "active"); } },
+          { label:"批量停用", run:function(ids){ return actBatchStatus(ids, "disabled"); } },
+          { label:"批量查用量", run:function(ids){ return actBatchUsage(ids); } },
+          { label:"批量删除", type:"danger", run:function(ids){ return actBatchDeleteAccounts(ids); } }
+        ]
+      }), actions));
       return list;
+    });
+  });
+}
+function actRenameAccount(id, label){
+  return CG.api("account.update",{ id:id, label:label });
+}
+/** 后端只有单条更新，批量在前端循环——号池规模是几十个，够用 */
+function actBatchStatus(ids, status){
+  var label = status==="disabled" ? "停用" : "启用";
+  return ids.reduce(function(chain, id){
+    return chain.then(function(){ return CG.api("account.update",{ id:id, status:status }); });
+  }, Promise.resolve()).then(function(){
+    CG.toast("已"+label+" "+ids.length+" 个账号","success");
+    CG.refresh();
+  });
+}
+function actBatchUsage(ids){
+  CG.toast("正在查询 "+ids.length+" 个账号的用量…","info",2000);
+  return ids.reduce(function(chain, id){
+    return chain.then(function(){ return CG.api("account.usage",{ id:id }); });
+  }, Promise.resolve()).then(function(){
+    CG.toast("用量已更新","success");
+    CG.refresh();
+  });
+}
+function actBatchDeleteAccounts(ids){
+  return new Promise(function(resolve, reject){
+    CG.dialog({
+      title:"批量删除", okText:"删除 "+ids.length+" 个",
+      body:h("div",{text:"确定删除选中的 "+ids.length+" 个账号？此操作不可撤销。"}),
+      onOk:function(){
+        resolve(ids.reduce(function(chain, id){
+          return chain.then(function(){ return CG.api("account.delete",{ id:id }); });
+        }, Promise.resolve()).then(function(){
+          CG.toast("已删除 "+ids.length+" 个账号","success");
+          CG.refresh();
+        }).catch(reject));
+      }
     });
   });
 }
@@ -283,14 +350,22 @@ function renderKeys(box){
     return CG.api("keys").then(function(list){
       CG.clear(host);
       var cols = [
-        { key:"name", label:"名称", sortable:true, render:function(k){
+        { key:"name", label:"名称", sortable:true,
+          filter:{type:"text",placeholder:"搜名称"},
+          filterValue:function(k){ return k.name + " " + k.keyPrefix; },
+          render:function(k){
             var b = h("div",{class:"cg-stack",style:{gap:"3px"}});
-            b.appendChild(h("b",{text:k.name}));
+            b.appendChild(CG.inlineEdit(k.name, function(next){ return actRenameKey(k.id, next); }, {title:"点击改名"}));
             b.appendChild(h("div",{class:"mono tiny muted",text:k.keyPrefix+"…"}));
             return b;
           } },
-        { key:"enabled", label:"状态", sortable:true, render:function(k){ return tag(k.enabled?"启用":"停用", k.enabled?"success":"info"); } },
-        { key:"fingerprintMode", label:"指纹", sortable:true, render:function(k){ return tag(k.fingerprintMode==="claude_code"?"Claude Code":"透传", k.fingerprintMode==="claude_code"?"primary":"info"); } },
+        { key:"enabled", label:"状态", sortable:true,
+          filter:{type:"select",placeholder:"全部",options:[{value:"启用",label:"启用"},{value:"停用",label:"停用"}]},
+          filterValue:function(k){ return k.enabled?"启用":"停用"; },
+          render:function(k){ return tag(k.enabled?"启用":"停用", k.enabled?"success":"info"); } },
+        { key:"fingerprintMode", label:"指纹", sortable:true,
+          filter:{type:"select",placeholder:"全部",options:[{value:"claude_code",label:"Claude Code"},{value:"passthrough",label:"透传"}]},
+          render:function(k){ return tag(k.fingerprintMode==="claude_code"?"Claude Code":"透传", k.fingerprintMode==="claude_code"?"primary":"info"); } },
         { key:"quotaEnabled", label:"配额", render:function(k){ return tag(k.quotaEnabled?"已启用":"未启用", k.quotaEnabled?"success":"info"); } },
         { key:"usageToday", label:"今日", sortable:true, sortValue:function(k){ return k.usageToday.requests; },
           render:function(k){ return CG.fmtNum(k.usageToday.requests)+" 次 / "+CG.fmtNum(k.usageToday.tokens)+" token"; } },
@@ -303,10 +378,46 @@ function renderKeys(box){
             return b;
           } }
       ];
-      host.appendChild(card("API Key（"+list.length+" 把）", CG.table(cols, list, { emptyText:"还没有 Key，先创建一把" }), [
+      host.appendChild(card("API Key（"+list.length+" 把）", CG.table(cols, list, {
+        emptyText:"还没有 Key，先创建一把",
+        selectable:true,
+        rowId:function(k){ return k.id; },
+        batchActions:[
+          { label:"批量启用", run:function(ids){ return actBatchKeys(ids, true); } },
+          { label:"批量停用", run:function(ids){ return actBatchKeys(ids, false); } },
+          { label:"批量删除", type:"danger", run:function(ids){ return actBatchDeleteKeys(ids); } }
+        ]
+      }), [
         h("button",{class:"el-button el-button--primary",text:"创建 Key",onclick:openCreateKey})
       ]));
       return list;
+    });
+  });
+}
+function actRenameKey(id, name){
+  return CG.api("key.update",{ id:id, name:name });
+}
+function actBatchKeys(ids, enabled){
+  return ids.reduce(function(chain, id){
+    return chain.then(function(){ return CG.api("key.update",{ id:id, enabled:enabled }); });
+  }, Promise.resolve()).then(function(){
+    CG.toast("已"+(enabled?"启用":"停用")+" "+ids.length+" 把 Key","success");
+    CG.refresh();
+  });
+}
+function actBatchDeleteKeys(ids){
+  return new Promise(function(resolve, reject){
+    CG.dialog({
+      title:"批量删除 Key", okText:"删除 "+ids.length+" 把",
+      body:h("div",{text:"确定删除选中的 "+ids.length+" 把 Key？使用它们的客户端会立刻失效。"}),
+      onOk:function(){
+        resolve(ids.reduce(function(chain, id){
+          return chain.then(function(){ return CG.api("key.delete",{ id:id }); });
+        }, Promise.resolve()).then(function(){
+          CG.toast("已删除 "+ids.length+" 把 Key","success");
+          CG.refresh();
+        }).catch(reject));
+      }
     });
   });
 }
@@ -376,11 +487,11 @@ var reqState = { page:1, size:50, outcome:"", protocol:"", search:"", data:null 
 function renderReqLogs(box){
   var host = h("div");
   box.appendChild(host);
-  var outcome = h("select",{class:"el-input__inner"},[
+  var outcome = h("select",{class:"el-input__inner cg-colfilter"},[
     h("option",{value:"",text:"全部结果"}), h("option",{value:"ok",text:"成功"}),
     h("option",{value:"blocked",text:"被拦截"}), h("option",{value:"error",text:"错误"})
   ]);
-  var protocol = h("select",{class:"el-input__inner"},[
+  var protocol = h("select",{class:"el-input__inner cg-colfilter"},[
     h("option",{value:"",text:"全部协议"}), h("option",{value:"anthropic",text:"anthropic"}),
     h("option",{value:"openai",text:"openai"})
   ]);
@@ -391,9 +502,8 @@ function renderReqLogs(box){
   outcome.addEventListener("change", apply);
   protocol.addEventListener("change", apply);
 
+  /* 结果与协议挂到对应列的表头下面当列筛选，顶部只留跨列的搜索 */
   var filters = h("div",{class:"cg-filters"},[
-    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"结果"}), outcome ]),
-    h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"协议"}), protocol ]),
     h("div",{class:"el-form-item cg-grow"},[ h("div",{class:"el-form-item__label",text:"搜索"}), search ]),
     h("button",{class:"el-button el-button--primary",text:"查询",onclick:apply}),
     h("button",{class:"el-button",text:"重置",onclick:function(){ outcome.value=""; protocol.value=""; search.value=""; apply(); }})
@@ -425,10 +535,10 @@ function renderReqLogs(box){
         { key:"reqId", label:"req-id", render:function(r){ return h("span",{class:"mono tiny",text:r.reqId||"-"}); } },
         { key:"ip", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.ip||"-"}); } },
         { key:"keyName", label:"Key", render:function(r){ return r.keyName||"-"; } },
-        { key:"protocol", label:"协议", sortable:true },
+        { key:"protocol", label:"协议", sortable:true, filter:{type:"slot", el:protocol} },
         { key:"model", label:"模型", render:function(r){ return h("span",{class:"mono tiny",text:r.model||"-"}); } },
         { key:"accountLabel", label:"账号", render:function(r){ return r.accountLabel||"-"; } },
-        { key:"status", label:"状态", sortable:true, render:function(r){
+        { key:"status", label:"状态", sortable:true, filter:{type:"slot", el:outcome}, render:function(r){
             if(r.blocked) return tag("拦截","danger");
             if(r.status>=400) return tag(String(r.status),"warning");
             return tag(String(r.status||200),"success");
@@ -457,7 +567,7 @@ var rtState = { page:1, size:100, level:"", search:"" };
 function renderRtLogs(box){
   var host = h("div");
   box.appendChild(host);
-  var level = h("select",{class:"el-input__inner"},[
+  var level = h("select",{class:"el-input__inner cg-colfilter"},[
     h("option",{value:"",text:"全部级别"}), h("option",{value:"debug",text:"debug"}),
     h("option",{value:"info",text:"info"}), h("option",{value:"warn",text:"warn"}), h("option",{value:"error",text:"error"})
   ]);
@@ -471,7 +581,6 @@ function renderRtLogs(box){
   var pageHost = h("div");
   host.appendChild(card("运行日志", h("div",{},[
     h("div",{class:"cg-filters"},[
-      h("div",{class:"el-form-item"},[ h("div",{class:"el-form-item__label",text:"级别"}), level ]),
       h("div",{class:"el-form-item cg-grow"},[ h("div",{class:"el-form-item__label",text:"搜索"}), search ]),
       h("button",{class:"el-button el-button--primary",text:"查询",onclick:apply}),
       h("button",{class:"el-button",text:"清空历史",onclick:function(){
@@ -493,7 +602,7 @@ function renderRtLogs(box){
       CG.clear(listHost);
       var cols = [
         { key:"ts", label:"时间", sortable:true, render:function(r){ return CG.fmtTime(r.ts); } },
-        { key:"level", label:"级别", sortable:true, render:function(r){
+        { key:"level", label:"级别", sortable:true, filter:{type:"slot", el:level}, render:function(r){
             var t = r.level==="error"?"danger":(r.level==="warn"?"warning":(r.level==="debug"?"info":"success"));
             return tag(r.level,t);
           } },
