@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createGateway } from "./server.ts";
+import { effectiveTransport } from "./upstream.ts";
+import { isBun } from "./net/fetch.ts";
 
 const gw = createGateway(process.env);
 
@@ -9,7 +11,10 @@ gw.listen()
     gw.log.info(
       "guard=" + gw.cfg.guardMode +
       " injectMissing=" + gw.cfg.injectMissing +
-      " transport=" + (gw.cfg.transport === "auto" ? "https" : gw.cfg.transport) +
+      " transport=" + effectiveTransport(gw.cfg) +
+    (gw.cfg.transport === "auto" && effectiveTransport(gw.cfg) === "https" && (isBun() ? !!gw.cfg.proxy : true)
+      ? " (auto：非 Bun 或有代理，拿不到完全一致的 JA3；要 JA3 就 Bun 直连)"
+      : "") +
       " runtime=" + (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined" ? "bun" : "node") +
       " upstream=" + gw.cfg.upstreamBase +
       " maxSockets=" + gw.cfg.upstreamMaxSockets

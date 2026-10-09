@@ -96,6 +96,9 @@ async function boot(over: Record<string, string> = {}) {
     ADMIN_TOKEN: "contract-admin", LOG_LEVEL: "error",
     UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
     GUARD_MODE: "strict", INJECT_MISSING: "false", STEGO_MODE: "block",
+    /* 这个文件测的是头序保真，必须钉住保序的那条通道；
+       auto 在 Bun 上会优先 fetch（拿 JA3），而 fetch 会重排请求头 */
+    TRANSPORT: "https",
     ...over
   } as never);
   gw.accounts.create({

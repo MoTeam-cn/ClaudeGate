@@ -90,7 +90,7 @@ Bun 的 `node:https` 少 `status_request(5)` 与 `signed_certificate_timestamp(1
 （`requestOCSP: true` 在 Bun 上被忽略，`Bun.connect` 也不带这两个）。
 只有 `fetch` 走的是 Chrome 级配置，12 个扩展全对，JA3 与真客户端一字不差。
 
-### 那为什么默认不跑 fetch
+### fetch 的代价
 
 因为 `fetch` 要付出两个代价：
 
@@ -99,13 +99,29 @@ Bun 的 `node:https` 少 `status_request(5)` 与 `signed_certificate_timestamp(1
 2. **不支持出站代理** —— SOCKS5 直接报 `UnsupportedProxyProtocol`，
    HTTP 代理只发绝对形式请求（CONNECT 隧道用不了）。
 
-头序是确定性信号，代理是硬需求，拿这两个换 2 个 TLS 扩展不划算。所以：
+头序是确定性信号，代理是硬需求。但 Anthropic 官方网关文档**从头到尾没提过 TLS 指纹或头序**，
+而 JA3 是 Cloudflare 那一层会看的东西（api.anthropic.com 就在 Cloudflare 后面）。
+既然用户的目标是 TLS 指纹对齐，默认就让给 JA3 —— 想要头序显式设 `TRANSPORT=https`。所以：
 
-| `TRANSPORT` | 用在 |
+所以 `auto` 的规则是**能拿 JA3 就拿**：
+
+| `TRANSPORT` | 解析成 | 用在 |
+|---|---|---|
+| `auto`（默认） | Bun 且没配代理 -> `fetch`；否则 `https` | 默认就是最好指纹 |
+| `https` | `node:https` | 头序优先、或需要出站代理时显式写死 |
+| `fetch` | `fetch` | 强制走 fetch（Bun 上） |
+
+启动日志会打出解析后的通道，以及为什么不是 fetch。
+
+### 走不通的路（都试过）
+
+| 试法 | 结果 |
 |---|---|
-| `auto`（默认） | 走 `node:https`，保头序、支持全部代理 |
-| `https` | 同上，显式写死 |
-| `fetch` | 只在 **Bun + 直连** 时用，换完全一致的 JA3，接受头序与代理的损失 |
+| `Bun.connect` 加 `requestOCSP: true` | 对 ClientHello **毫无影响**，仍是 10 扩展 |
+| `Bun.connect` 加 `ALPNProtocols` | 直接抛 `TLSOptions.ALPNProtocols must be of type string, ArrayBuffer, or null` |
+| `fetch` 传普通对象 / `Headers.set` / `Headers.append` | 三种都重排，控制不了 |
+
+也就是说「完全一致的 JA3」只有 `fetch` 一条入口，没有别的办法。
 
 想自己复现这张表：`node test/tls-probe.ts 3199` 起抓取器，把各个通道指过去即可。
 

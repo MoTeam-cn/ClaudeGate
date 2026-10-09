@@ -70,7 +70,10 @@ const gw = createGateway({
   PORT: "0", HOST: "127.0.0.1", DATA_DIR: dataDir, SECRET: "hdr-secret",
   UPSTREAM_BASE: "http://127.0.0.1:" + upPort,
   GUARD_MODE: "strict", INJECT_MISSING: "false", STEGO_MODE: "block",
-  ADMIN_TOKEN: "hdr-admin", LOG_LEVEL: "error"
+  ADMIN_TOKEN: "hdr-admin", LOG_LEVEL: "error",
+  /* 这个文件测的就是头序，必须钉住保序的通道：
+     auto 在 Bun 上优先 fetch 去换 JA3，而 fetch 会重排请求头 */
+  TRANSPORT: "https"
 });
 gw.accounts.create({
   label: "h", kind: "oauth", accessToken: "oauth-access",

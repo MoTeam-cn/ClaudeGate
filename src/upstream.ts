@@ -110,17 +110,35 @@ export interface UpstreamCallOptions {
 }
 
 /**
- * 选通道。
+ * 选出真正要用的通道。
  *
- * auto 默认走 node:https —— 不是因为它的 TLS 更好（恰恰相反），而是因为
- * fetch 通道会重排请求头、并且不支持出站代理。头序是确定性信号，代理是硬需求，
- * 拿这两个去换 2 个 TLS 扩展不划算。
+ * 四条路实测的 JA3（同一台机器、同一个 TLS 服务端、同一个目标 IP）：
  *
- * 想要完全一致的 JA3（直连、不需要代理时）显式设 TRANSPORT=fetch。
- * 三条通道实测的 JA3 见 net/fetch.ts 的注释与 docs/fingerprint.md。
+ *   Node node:https + 钉套件   10ece698233123fa8829a8b2a7de6db1   17 套件 / 11 扩展 / 曲线 8 条 / 点格式 0-1-2
+ *   Bun  node:https + 钉套件   c33df997f0ea608c617c58df7ad5f1f6   17 套件 / 10 扩展 / 曲线 4 条 / 点格式 0
+ *   Bun  fetch                 5260242a2eb12c71995767c24569bff5   17 套件 / 12 扩展 / 曲线 4 条 / 点格式 0  ← 与真 Claude Code 逐位一致
+ *   Bun  Bun.connect           117e3a479f24fc1d38052d156be91f71   10 扩展（还少了 ALPN）
+ *
+ * 试过但走不通的：Bun.connect 加 requestOCSP 对 ClientHello 毫无影响；
+ * 加 ALPNProtocols 直接抛 TLSOptions.ALPNProtocols must be of type string...。
+ * 所以「完全一致的 JA3」只有 fetch 一条路，没有别的入口。
+ *
+ * fetch 的代价是两条：请求头被 Bun 的 Headers 重排（三种传参方式都重排，控制不了），
+ * 以及不支持 SOCKS5 与 CONNECT 代理。
+ *
+ * 所以 auto 的规则是：能拿 JA3 就拿 —— Bun 且没配代理时走 fetch；
+ * 非 Bun、或配了代理时退回 node:https。要强制头序优先就显式设 TRANSPORT=https。
  */
+export function effectiveTransport(cfg: Config): "fetch" | "https" {
+  if (cfg.transport === "fetch") return "fetch";
+  if (cfg.transport === "https") return "https";
+  /* auto：Bun 且直连才有意义 */
+  if (fetchTransportUsable() && !cfg.proxy) return "fetch";
+  return "https";
+}
+
 export function upstreamRequest(cfg: Config, opts: UpstreamCallOptions): Promise<UpstreamResponse> {
-  if (cfg.transport === "fetch") return fetchUpstream(cfg, opts);
+  if (effectiveTransport(cfg) === "fetch") return fetchUpstream(cfg, opts);
   return nodeUpstreamRequest(cfg, opts);
 }
 
