@@ -31,10 +31,16 @@ Docker：
 
 ```bash
 docker run -d --name claudegate --restart unless-stopped \
-  -p 8800:8800 -v claudegate-data:/data \
+  -p 27666:8800 \
+  -v claudegate-data:/data \
   ghcr.io/moteam-cn/claudegate:latest
-# 首次启动看日志拿面板登录密钥；主密钥存在 /data/admin.json，跟着卷一起持久化
 ```
+
+容器内固定监听 8800，左边宿主机端口随便改。首次启动用 `docker logs claudegate` 拿面板登录密钥；
+主密钥存在 `/data/admin.json`，跟着卷一起持久化。
+
+包是私有的，拉之前要先 `docker login ghcr.io`（PAT 需要 `read:packages`），
+或者在 GitHub 上把包改成公开。详见[部署](docs/deployment.md)。
 
 ## 文档
 

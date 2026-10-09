@@ -7,12 +7,13 @@
 前者给 CI 的 `test-bun` 与 Docker 构建，后者给 `npm ci`。
 构建走的是 `bun install --frozen-lockfile`，所以 `bun.lock` 必须一起 COPY 进镜像。
 
-CI 里有一条 `docker` 作业会真构建、真起容器、轮询 `/healthz` ——
-只跑 `bun test` 是测不到 COPY 路径、文件权限、`USER bun`、`HEALTHCHECK` 这些的。
+CI 里有一条 `docker` 作业会真构建并推送镜像，所以 COPY 路径、`USER bun`、`HEALTHCHECK`
+这些只跑 `bun test` 测不到的东西，至少能保证构建得过。
+**但它不会起容器** —— 容器能不能真跑起来，第一次 `docker run` 时自己看一眼日志。
 
 ## 系统要求
 
-- Node **22.6+**（Docker 镜像用的是 Node 24）
+- 直接跑源码要 Node **22.6+**；Docker 镜像里跑的是 **Bun 1**，不依赖 Node
 - 一个到上游能稳定出网的落地机
 - 约 100 MB 磁盘（代码 + 依赖）；数据库大小取决于日志保留策略
 
@@ -35,31 +36,72 @@ sudo systemctl enable --now claude-gateway
 
 镜像由 GitHub Actions 自动构建推到 GHCR：
 
-```bash
-docker pull ghcr.io/moteam-cn/claudegate:latest
+```
+ghcr.io/moteam-cn/claudegate:latest
+```
 
+仓库是私有的，所以**包默认也是私有的**。两种走法二选一：
+
+- 把包改成公开：GitHub → 组织 → Packages → claudegate → Package settings → Change visibility → Public
+- 保持私有，先登录（PAT 需要 `read:packages`）：
+
+```bash
+echo <你的PAT> | docker login ghcr.io -u <你的GitHub用户名> --password-stdin
+```
+
+### 一键启动
+
+```bash
 docker run -d --name claudegate --restart unless-stopped \
-  -p 8800:8800 \
+  -p 27666:8800 \
   -v claudegate-data:/data \
-  -e PUBLIC_URL=https://gw.example.com \
+  -e PUBLIC_URL=http://你的内网地址:27666 \
   -e UPSTREAM_PROXY=socks5h://user:pass@proxy.example.com:1080 \
   ghcr.io/moteam-cn/claudegate:latest
 ```
 
-或者用仓库里的 compose：
+左边是宿主机端口，随便改；**右边 8800 是容器内端口，不要动**（镜像里 `PORT=8800`）。
+
+起来之后：
+
+```bash
+docker logs claudegate 2>&1 | grep -A 6 '面板登录密钥'
+```
+
+那串 `cgk_` 开头的就是面板登录密钥，**只在首次启动打印这一次**。收好它，
+然后开 `http://你的内网地址:27666/panel`。
+
+### 出站代理
+
+`UPSTREAM_PROXY` 就是网关到 Anthropic 的出口。容器里 `127.0.0.1` 指的是容器自己，
+不是宿主机 —— 代理跑在宿主机上时要写 `host.docker.internal`：
+
+```bash
+  -e UPSTREAM_PROXY=http://host.docker.internal:7890 \
+  --add-host host.docker.internal:host-gateway \
+```
+
+Linux 上必须加 `--add-host`，`host.docker.internal` 不会自动解析。
+代理失效时网关**直接报错，不会回退直连** —— 这是故意的，见[代理](proxy.md)。
+
+### compose
 
 ```bash
 cp .env.example .env      # 改 PUBLIC_URL 等
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
+compose 里已经把宿主机端口映射到 27666。注意它 `env_file` 指向 `../.env`，
+那个文件不存在时 compose 会直接报错 —— 不用就把它注释掉。
+
 镜像的几个事实：
 
 - 两阶段构建，运行阶段**只带编译产物**（项目零运行时依赖，`node_modules` 都不用装）
-- 以非 root 用户 `node` 运行
-- 数据都在 `/data` 卷里
-- 自带 `HEALTHCHECK`，打的是 `/healthz`
+- 以非 root 用户 `bun` 运行
+- 数据都在 `/data` 卷里；**主密钥在 `/data/admin.json`，卷丢了就要重新派发登录密钥**
+- 自带 `HEALTHCHECK`，用 `bun` 打 `/healthz`
 - 默认 `PORT=8800`、`HOST=0.0.0.0`、`DATA_DIR=/data`
+- 容器内数据目录是 `/data` 而不是默认的 `./data`，所以主密钥**不会**镜像到 `.env`（`.env` 在容器里也不持久）。想让 `.env` 也有，把宿主的 `.env` 挂进 `/app/.env`
 
 ### 镜像标签
 

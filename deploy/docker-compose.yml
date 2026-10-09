@@ -9,6 +9,7 @@ services:
     #   dockerfile: Dockerfile
     container_name: claudegate
     restart: unless-stopped
+    # env_file 里的键会作为真实环境变量注入容器；没有 ../.env 就注释掉这一项
     env_file:
       - ../.env
     environment:
@@ -17,13 +18,15 @@ services:
       HOST: 0.0.0.0
       NODE_OPTIONS: --disable-warning=ExperimentalWarning
     ports:
-      - "8800:8800"
+      # 左边是宿主机端口，右边是容器内端口（固定 8800，改右边没用）
+      - "27666:8800"
     volumes:
       - claudegate-data:/data
     healthcheck:
+      # 运行时镜像是 oven/bun，用 bun 而不是 node
       test:
         - CMD
-        - node
+        - bun
         - -e
         - "fetch('http://127.0.0.1:8800/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 30s
