@@ -87,6 +87,8 @@ function usageCell(a){
     return h("span",{class:"muted tiny",text:msg});
   }
   var box = h("div",{class:"cg-stack",style:{gap:"6px"}});
+  /* 原始响应挂在单元格上：窗口认出来了却没数字时，只有原文能说清为什么 */
+  if(u.raw) box.title = u.raw;
   sortWindows(keys).forEach(function(k){
     var w = u.windows[k]||{};
     /* 标题行：窗口名（+ scoped 行的标签），服务端挑的头条行加个「当前」 */

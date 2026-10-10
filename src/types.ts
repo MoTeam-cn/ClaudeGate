@@ -366,6 +366,8 @@ export interface UsageWindow {
 }
 
 export interface UsageSnapshot {
+  /** 上游原始响应（截断）。面板上能看，省得「窗口在但没数字」时只能猜 */
+  raw?: string;
   ok: boolean;
   /** oauth = 查了 /api/oauth/usage；headers = 从响应头推断；none = 没数据 */
   source: "oauth" | "headers" | "none";

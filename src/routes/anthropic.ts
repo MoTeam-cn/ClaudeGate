@@ -6,6 +6,7 @@ import { requestIdOf, getTracker } from "../http/context.ts";
 import { inspectPayload } from "../security/inspect.ts";
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { checkModelAllowed } from "../models.ts";
+import { withBeta } from "../constants.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { isUpstreamError } from "../types.ts";
 import type { AnthropicResponse, AuthState, GatewayContext } from "../types.ts";
@@ -75,7 +76,8 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
 
     let up;
     try {
-      up = await callUpstream(ctx, req, auth, url.pathname + url.search, body, {
+      /* 客户端带了 beta=true 就原样转发；没带就补上 —— 官方客户端一定会带 */
+      up = await callUpstream(ctx, req, auth, withBeta(url.pathname, url.search), body, {
         stream: wantsStream,
         sessionKey: sessionKeyOf(req, auth)
       });
@@ -191,7 +193,7 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
 
     let up;
     try {
-      up = await callUpstream(ctx, req, auth, "/v1/messages/count_tokens", payload, {
+      up = await callUpstream(ctx, req, auth, withBeta("/v1/messages/count_tokens"), payload, {
         sessionKey: sessionKeyOf(req, auth)
       });
     } catch (e) {

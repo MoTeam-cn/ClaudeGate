@@ -1,4 +1,4 @@
-import { ANTHROPIC_VERSION, CC_UA, OAUTH_BETA } from "../constants.ts";
+import { ANTHROPIC_VERSION, CC_UA, OAUTH_BETA, USAGE_PATH, USAGE_PATH_ALT } from "../constants.ts";
 import { headerValue } from "../utils.ts";
 import { requestRaw } from "../net/request.ts";
 import type { Account, Config, RateLimitObservation, UsageSnapshot, UsageWindow } from "../types.ts";
@@ -37,6 +37,33 @@ function scopeLabelOf(scope: Record<string, unknown> | null): string | null {
       const dn = (sub as Record<string, unknown>).display_name;
       if (typeof dn === "string" && dn) return dn;
     }
+  }
+  return null;
+}
+
+/**
+ * 从一行用量里取百分比。
+ *
+ * 二进制里有两个不同的字段名：
+ *   · rate_limits.limits[] 里叫 percent（0-100）
+ *   · cedar-ember 的 grant 里叫 percent_used，而且是个按 limit_type 索引的映射
+ *     （z.record(...)，客户端自己再按已知的 limit_type 过滤成 0-100 的整数）
+ * 所以两种都要认：先取标量，取不到再从映射里按行名取，再取不到就取映射里的最大值。
+ */
+function percentOf(o: Record<string, unknown>, name: string): number | null {
+  const direct = numOrNull(o.percent ?? o.utilization ?? o.used_percent ?? o.percentUsed);
+  if (direct !== null) return direct;
+  const rec = o.percent_used;
+  if (rec && typeof rec === "object" && !Array.isArray(rec)) {
+    const m = rec as Record<string, unknown>;
+    const exact = numOrNull(m[name]);
+    if (exact !== null) return exact;
+    let best: number | null = null;
+    for (const k of Object.keys(m)) {
+      const x = numOrNull(m[k]);
+      if (x !== null && (best === null || x > best)) best = x;
+    }
+    if (best !== null) return best;
   }
   return null;
 }
@@ -108,7 +135,7 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
     if (!name) continue;
 
     /* 百分比：新形状是 percent，老形状是 utilization。percent 可能是 0，所以用 ?? 而不是 || */
-    const rawUtil = numOrNull(o.percent ?? o.utilization ?? o.used_percent);
+    const rawUtil = percentOf(o, name);
     /* 0-100 -> 0-1。老形状本身就是小数，所以只在明显超过 1 时才换算 */
     const util = rawUtil === null ? null : rawUtil > 1.5 ? rawUtil / 100 : rawUtil;
 
@@ -147,20 +174,21 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
  */
 export async function fetchOauthUsage(cfg: Config, account: Account, timeoutMs = 15000): Promise<UsageSnapshot> {
   const base = cfg.upstreamBase.replace(/\/+$/, "");
-  const url = base + "/api/oauth/usage";
-  const fail = (msg: string): UsageSnapshot => ({
+  const fail = (msg: string, raw?: string): UsageSnapshot => ({
     ok: false,
     source: "oauth",
     windows: {},
     error: msg,
+    ...(raw ? { raw: raw.slice(0, 4000) } : {}),
     fetchedAt: Date.now()
   });
 
   if (account.kind !== "oauth") return fail("只有订阅 OAuth 账号才有用量接口");
   if (!account.accessToken) return fail("账号没有 access_token");
 
-  try {
-    const res = await requestRaw(url, {
+  /** 打一次用量接口，把原文与解析结果一起交出来 */
+  async function fetchOnce(path: string): Promise<{ text: string; snap: UsageSnapshot | null; err: string | null }> {
+    const res = await requestRaw(base + path, {
       cfg,
       method: "GET",
       headers: {
@@ -173,21 +201,44 @@ export async function fetchOauthUsage(cfg: Config, account: Account, timeoutMs =
       timeoutMs
     });
     const text = res.text;
-    if (!res.ok) return fail("HTTP " + res.status + " " + text.slice(0, 200));
+    if (!res.ok) return { text, snap: null, err: "HTTP " + res.status + " " + text.slice(0, 200) };
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
-      return fail("响应不是合法 JSON：" + text.slice(0, 120));
+      return { text, snap: null, err: "响应不是合法 JSON：" + text.slice(0, 120) };
     }
-    const snap = normalizeOauthUsage(parsed);
+    return { text, snap: normalizeOauthUsage(parsed), err: null };
+  }
+
+  /** 一行百分比都没解析出来 —— 说明拿到的形状不对，值得换一套参数再试 */
+  function noNumbers(snap: UsageSnapshot): boolean {
+    const ws = Object.values(snap.windows);
+    if (!ws.length) return true;
+    return ws.every((w) => w.utilization === null);
+  }
+
+  try {
+    /* 官方客户端两套参数都用过（二进制里的原文引用）：
+         /api/oauth/usage?at_wall=1&skip_spend=1
+         /api/oauth/usage?cedar_ember=1&skip_spend=1
+       先试第一套；如果窗口认出来了却一个百分比都没有，说明服务端给的是另一份形状，
+       换第二套再试一次。两次都空就把原文带回去，别再让人对着一片 null 猜。 */
+    let r = await fetchOnce(USAGE_PATH);
+    if (!r.err && r.snap && noNumbers(r.snap)) {
+      const alt = await fetchOnce(USAGE_PATH_ALT).catch(() => null);
+      if (alt && !alt.err && alt.snap && !noNumbers(alt.snap)) r = alt;
+    }
+    if (r.err) return fail(r.err, r.text);
+    const snap = r.snap as UsageSnapshot;
+    snap.raw = r.text.slice(0, 4000);
+
     /* 二进制里对应这句（原文引用）：
          "Usage fetch returned a fieldless or non-object body (in-band error)"
        上游会回一个什么字段都没有的 body。以前这里直接返回 ok:true + windows:{}，
-       面板看起来像「查到了但没有额度」，其实是没解析到。现在如实报错并把原文带上，
-       免得用户对着一片空白猜。 */
+       面板看起来像「查到了但没有额度」，其实是没解析到。 */
     if (Object.keys(snap.windows).length === 0 && !snap.subscriptionType) {
-      return fail("上游返回的用量里没有任何可识别字段（既没有 rate_limits 也没有 limits）。原始响应：" + text.slice(0, 300));
+      return fail("上游返回的用量里没有任何可识别字段（既没有 rate_limits 也没有 limits）。原始响应：" + r.text.slice(0, 300), r.text);
     }
     /* 顺手把额度已耗尽这件事反映到窗口状态上 */
     for (const w of Object.values(snap.windows)) {

@@ -213,6 +213,7 @@ function createUsageUpstream() {
   let exhaustedFor: string | null = null;
   let usageCalls = 0;
   const seenAuth: string[] = [];
+  const seenUrls: string[] = [];
 
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -222,6 +223,7 @@ function createUsageUpstream() {
 
       if (url.startsWith("/api/oauth/usage")) {
         usageCalls += 1;
+        seenUrls.push(url);
         seenAuth.push(String(req.headers.authorization ?? ""));
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({
@@ -302,6 +304,7 @@ function createUsageUpstream() {
     setExhaustedFor(v: string | null) { exhaustedFor = v; },
     get usageCalls() { return usageCalls; },
     get seenAuth() { return seenAuth; },
+    get seenUrls() { return seenUrls; },
     listen(): Promise<number> {
       return new Promise((r) => server.listen(0, "127.0.0.1", () => r((server.address() as AddressInfo).port)));
     },
@@ -388,6 +391,8 @@ eq("查用量 200", usageRes.status, 200);
 const usageData = (asRecord(usageRes.json).data as Array<Record<string, unknown>>)[0] ?? {};
 eq("查用量命中 oauth 账号", usageData.ok, true);
 eq("上游收到 Bearer", upstream.seenAuth[0], "Bearer oauth-token-1");
+/* 不带官方客户端那两个参数，服务端会回另一份形状，limits[] 里的百分比是空的 */
+ok("用量接口带了官方参数", String(upstream.seenUrls[0]).indexOf("skip_spend=1") !== -1, String(upstream.seenUrls[0]));
 eq("用量已落库", gw.accounts.get(acc1.id)?.usage?.windows.five_hour?.utilization, 0.31);
 
 const consoleUsage = await request(addr.port, "/panel/api?action=account.usage&key=" + ADMIN, {

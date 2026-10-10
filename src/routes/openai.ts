@@ -10,6 +10,7 @@ import { openaiToAnthropic } from "../translate/openai-in.ts";
 import { anthropicToOpenai, streamAnthropicToOpenai } from "../translate/openai-out.ts";
 import { listModels, checkModelAllowed } from "../models.ts";
 import { bool, safeJson } from "../utils.ts";
+import { withBeta } from "../constants.ts";
 import { isUpstreamError } from "../types.ts";
 import type { AnthropicResponse, AuthState, GatewayContext, OpenAIChatRequest } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -86,7 +87,8 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
 
     let up;
     try {
-      up = await callUpstream(ctx, req, auth, "/v1/messages", payload, {
+      /* 必须带 ?beta=true：官方客户端就是这么打的，缺了会被按另一条路径限流 */
+      up = await callUpstream(ctx, req, auth, withBeta("/v1/messages"), payload, {
         stream: wantStream,
         sessionKey: sessionKeyOf(req, auth)
       });

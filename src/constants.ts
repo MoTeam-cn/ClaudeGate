@@ -31,6 +31,26 @@ export const OAUTH_BETA = "oauth-2025-04-20";
 /** Claude Code 请求必带的 beta 标志，是「我是 Claude Code」的强信号之一 */
 export const CC_BETA = "claude-code-20250219";
 export const ANTHROPIC_VERSION = "2023-06-01";
+
+/**
+ * 官方 Claude Code 的 Messages 资源打的是 /v1/messages?beta=true ——
+ * 从二进制里抠出来的原文引用：this._client.post("/v1/messages?beta=true", {...})，
+ * 客户端里还专门有一张表 T=new Set(["/v1/messages","/v1/messages?beta=true"]) 来认这两条路径。
+ *
+ * 网关原先走的是裸 /v1/messages（OpenAI 那条路是写死的，客户端带的查询串被丢了），
+ * 少这个参数，服务端走的是另一条路径 —— 表现就是请求一来就被限流。
+ */
+export function withBeta(pathname: string, search = ""): string {
+  if (/(?:^|[?&])beta=true(?:&|$)/.test(search)) return pathname + search;
+  return pathname + (search ? search + "&beta=true" : "?beta=true");
+}
+
+/** 订阅用量接口。官方客户端带这两个参数（二进制里的原文引用）：
+ *   /api/oauth/usage?at_wall=1&skip_spend=1
+ *   /api/oauth/usage?cedar_ember=1&skip_spend=1
+ * 不带参数时服务端回的是另一份形状，limits[] 里的百分比是空的。 */
+export const USAGE_PATH = "/api/oauth/usage?at_wall=1&skip_spend=1";
+export const USAGE_PATH_ALT = "/api/oauth/usage?cedar_ember=1&skip_spend=1";
 export const CC_VERSION = "2.1.293";
 export const CC_UA = "claude-cli/" + CC_VERSION + " (external, cli)";
 

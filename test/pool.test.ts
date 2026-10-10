@@ -271,6 +271,13 @@ const openaiOnOpenaiKey = await request(addr.port, "/v1/chat/completions", {
   body: { model: "gpt-4o", messages: [{ role: "user", content: "hi" }] }
 });
 eq("协议白名单放行 openai", openaiOnOpenaiKey.status, 200);
+/* 官方客户端打的是 /v1/messages?beta=true。OpenAI 那条路的路径是网关自己拼的，
+   最容易漏掉这个参数 —— 漏了服务端走另一条路径，表现就是请求一来就被限流。 */
+eq("OpenAI 转译也带 beta=true", upstream.last?.url, "/v1/messages?beta=true");
+
+const nativeMsg = await request(addr.port, "/v1/messages", { headers: { ...CC, "x-api-key": protoKey.plaintext }, body: BODY });
+void nativeMsg;
+eq("原生透传也补上 beta=true", upstream.last?.url, "/v1/messages?beta=true");
 
 const modelKey = gw.keys.create({ name: "only-sonnet", allowedModels: ["claude-sonnet-4-5-20250929"] });
 const badModel = await request(addr.port, "/v1/messages", {
