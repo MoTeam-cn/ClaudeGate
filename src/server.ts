@@ -217,7 +217,9 @@ export function createGateway(env: Record<string, string | undefined> = process.
     { method: "GET", path: "/api/hello", handler: hello },
     { method: "GET", path: "/panel", handler: panel.page },
     { method: "GET", path: "/panel/api", handler: panel.api },
-    { method: "POST", path: "/panel/api", handler: panel.api }
+    { method: "POST", path: "/panel/api", handler: panel.api },
+    /* 面板样式与脚本（/panel/assets/*），路径由 PANEL_ASSETS 派生 */
+    ...panel.assetRoutes
   ];
 
   /** 受保护路由：先过令牌，再按 Key 策略决定守卫 */

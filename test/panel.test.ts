@@ -17,6 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { panelHtml } from "../src/panel/html.ts";
+import { CORE_JS } from "../src/panel/web/index.ts";
+import { VIEWS_JS } from "../src/panel/web/views/index.ts";
 import { createGateway } from "../src/server.ts";
 import { cleanupDir } from "./helpers/tmp.ts";
 import { request } from "./helpers/client.ts";
@@ -36,7 +38,14 @@ function eq(name: string, a: unknown, b: unknown): void {
 
 const watchdog = setTimeout(() => { console.log("\n!! 超时"); process.exit(3); }, 60000);
 const here = path.dirname(fileURLToPath(import.meta.url));
-const src = (rel: string) => fs.readFileSync(path.join(here, "..", "src", "panel", rel), "utf8");
+/* 面板源码现在按目录拆开：给文件就直读，给目录就递归拼起来（顺序无关，测试只做 includes/正则） */
+function readPanelTree(p: string): string {
+  if (fs.statSync(p).isFile()) return fs.readFileSync(p, "utf8") + "\n";
+  let out = "";
+  for (const e of fs.readdirSync(p, { withFileTypes: true })) out += readPanelTree(path.join(p, e.name));
+  return out;
+}
+const src = (rel: string) => readPanelTree(path.join(here, "..", "src", "panel", rel));
 
 /* ================= 渲染产物 ================= */
 /* 面板「设备指纹」列读的是 a.deviceId。publicAccount 漏传过这个字段，
@@ -49,10 +58,16 @@ ok("账号 UUID 也一并传", pubBlock.indexOf("accountUuid:") !== -1);
 
 console.log("\n=== A. 渲染产物 ===");
 const html = panelHtml({ cfg: { adminToken: "test-admin" } } as unknown as GatewayContext);
-ok("不是空串", html.length > 20000, "长度=" + html.length);
+/* 外壳现在很薄：样式与脚本都拆成 /panel/assets/* 单独下发并带内容指纹。
+   以前这里断言的是「HTML 长度 > 20000」和「<script> 开闭配对」，那是内联时代的形状 */
+ok("外壳不再内联代码", html.length < 4000, "长度=" + html.length);
 ok("声明了 doctype", html.startsWith("<!doctype html>"));
-eq("script 开闭配对", (html.match(/<script>/g) ?? []).length, (html.match(/<\/script>/g) ?? []).length);
-eq("style 开闭配对", (html.match(/<style>/g) ?? []).length, (html.match(/<\/style>/g) ?? []).length);
+eq("两个外链脚本", (html.match(/<script src=/g) ?? []).length, 2);
+eq("没有内联 script", (html.match(/<script>/g) ?? []).length, 0);
+eq("没有内联 style", (html.match(/<style>/g) ?? []).length, 0);
+ok("样式表带内容指纹", html.includes('href="/panel/assets/panel.css?v='));
+ok("脚本地址带内容指纹",
+  html.includes('src="/panel/assets/core.js?v=') && html.includes('src="/panel/assets/views.js?v='));
 ok("有 viewport（移动端的前提）", html.includes("width=device-width"));
 ok("有消息容器", html.includes('id="messages"'));
 ok("六个菜单项", (html.match(/data-route="/g) ?? []).length === 6, String((html.match(/data-route="/g) ?? []).length));
@@ -70,7 +85,7 @@ ok("重置过说明", noteOf({ mode: "custom", envOverride: false }).includes("�
 ok("ADMIN_TOKEN 接管说明", noteOf({ mode: "env", envOverride: true }).includes("ADMIN_TOKEN 接管"));
 
 /* 令牌的来路与去路：不进 URL、走头、存 localStorage、失效重问 */
-const authSrc = src("client.ts");
+const authSrc = src("web");
 ok("前端不再从查询串取令牌", !authSrc.includes('QS.get("key")') && !authSrc.includes('"&key="'));
 ok("令牌走 x-admin-token 头", authSrc.includes("x-admin-token"));
 ok("令牌存 localStorage", authSrc.includes('localStorage.getItem("cg_admin")'));
@@ -84,14 +99,14 @@ ok("登录成功页不再把令牌拼进链接", !src("../routes/auth.ts").inclu
 ok("根路由不再带 key 跳转", !src("../routes/admin.ts").includes('location: "/panel" + '));
 
 /* 下拉框：原生 <select> 的弹出层由操作系统画，跟面板其它部分两个世界，所以自绘了一个 */
-const viewsSrc = src("views.ts");
+const viewsSrc = src("web/views");
 /* 不用正则字面量 —— node 的类型剥离器对它们挑刺 */
 const countOf = (hay: string, needle: string): number => hay.split(needle).length - 1;
 ok("自绘下拉组件在 client.ts 里", authSrc.includes("function selectBox("));
 ok("自绘下拉已导出", authSrc.includes("window.CG.selectBox = selectBox"));
 eq("视图层不再用原生 select", countOf(viewsSrc, 'h("select"'), 0);
 ok("表格筛选也用自绘下拉", authSrc.includes("var sel = selectBox("));
-ok("弹层样式在组件表里", src("components.ts").includes(".cg-select__drop{"));
+ok("弹层样式在组件表里", src("styles").includes(".cg-select__drop{"));
 /* 组件对象不是 DOM 元素，当 toolbar 项用时必须取 .el，否则 appendChild 会炸 */
 ok("toolbar 筛选取的是 .el",
   viewsSrc.includes('{ label:"结果", el:outcome.el }') &&
@@ -141,10 +156,11 @@ ok("Key 行重置入口挂在更多菜单里", viewsSrc.includes('label:"重置�
 ok("设备指纹可点击复制", viewsSrc.includes("cg-mono-chip"));
 ok("出口卡片显示解析出的代理", viewsSrc.includes('line("出站代理"'))
 
-/* ================= 内联脚本可解析 ================= */
-console.log("\n=== B. 内联脚本 ===");
-const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);
-const js = scriptMatch ? scriptMatch[1] : "";
+/* ================= 脚本可解析 ================= */
+/* 下发给浏览器的就是这两个 bundle。它们是拼出来的，先在 Node 侧解析一遍 ——
+   拼装顺序或片段边界写错，这里立刻炸 */
+console.log("\n=== B. 脚本可解析 ===");
+const js = CORE_JS + "\n" + VIEWS_JS;
 ok("取到了脚本", js.length > 5000, "长度=" + js.length);
 {
   let err: string | null = null;
@@ -155,7 +171,7 @@ ok("脚本里没有模板字面量（会和外层冲突）", !js.includes(String
 
 /* ================= 前后端 action 契约 ================= */
 console.log("\n=== C. action 契约 ===");
-const clientSrc = src("client.ts") + src("views.ts");
+const clientSrc = src("web");
 const apiSrc = src("api.ts");
 
 const called = new Set<string>();
@@ -174,24 +190,24 @@ console.log("    （后端有、前端暂未调用: " + (orphan.join(", ") || "�
 
 /* ================= 路由契约 ================= */
 console.log("\n=== D. 路由契约 ===");
-const routesMatch = /var ROUTES = \[([^\]]+)\]/.exec(src("client.ts"));
+const routesMatch = /var ROUTES = \[([^\]]+)\]/.exec(src("web"));
 const routes = routesMatch ? routesMatch[1]!.split(",").map((s) => s.trim().replace(/"/g, "")) : [];
-const mapMatch = /var map = \{([^}]+)\}/.exec(src("views.ts"));
+const mapMatch = /var map = \{([^}]+)\}/.exec(src("web/views"));
 const mapKeys = mapMatch ? [...mapMatch[1]!.matchAll(/([a-z]+)\s*:/g)].map((m) => m[1]!) : [];
 eq("路由数量", routes.length, 6);
 for (const r of routes) ok("路由 " + r + " 有渲染函数", mapKeys.includes(r));
-const titles = src("client.ts").match(/var TITLES = \{([\s\S]*?)\};/);
+const titles = src("web").match(/var TITLES = \{([\s\S]*?)\};/);
 for (const r of routes) ok("路由 " + r + " 有标题", !!titles && titles[1]!.includes(r + ":"));
 
 /* ================= 六个痛点的实现特征 ================= */
 console.log("\n=== E. 六个痛点 ===");
-const all = src("client.ts") + src("views.ts") + src("components.ts");
+const all = src("web") + src("styles");
 const features: Array<[string, boolean]> = [
   ["表格排序（表头可点）", all.includes("is-sortable")],
-  ["表头吸顶", /el-table th\{[^}]*position:sticky/.test(src("components.ts"))],
-  ["表格有内滚动高度", /\.el-table-wrap\{[^}]*max-height/.test(src("components.ts"))],
-  ["表头整块吸顶", /\.el-table thead\{[^}]*position:sticky/.test(src("components.ts"))],
-  ["表格可以单独定高", src("client.ts").includes("opt.maxHeight")],
+  ["表头吸顶", /el-table th\{[^}]*position:sticky/.test(src("styles"))],
+  ["表格有内滚动高度", /\.el-table-wrap\{[^}]*max-height/.test(src("styles"))],
+  ["表头整块吸顶", /\.el-table thead\{[^}]*position:sticky/.test(src("styles"))],
+  ["表格可以单独定高", src("web").includes("opt.maxHeight")],
   ["长文本截断", all.includes("clamp") && all.includes("-webkit-line-clamp")],
   ["列筛选（工具栏式）", all.includes("cg-filterbar") && all.includes("filterRows")],
   ["筛选控件带列名标签", all.includes("cg-filterbar__label")],
@@ -225,7 +241,7 @@ try {
   const noKey = await request(port, "/panel");
   eq("面板页不需要令牌（外壳是静态的）", noKey.status, 200);
   ok("返回的是 HTML", noKey.text.startsWith("<!doctype html>"));
-  ok("面板页带上了内联脚本", noKey.text.includes("<script>"));
+  ok("面板页带上了脚本外链", noKey.text.includes("<script src="));
   ok("页面里没有管理员令牌", !noKey.text.includes("panel-admin"));
 
   const withQuery = await request(port, "/panel?key=panel-admin");

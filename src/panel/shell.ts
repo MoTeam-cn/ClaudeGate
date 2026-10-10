@@ -1,15 +1,15 @@
-import type { GatewayContext } from "../types.ts";
-import { TOKENS_CSS } from "./tokens.ts";
-import { COMPONENTS_CSS } from "./components.ts";
-import { CLIENT_JS } from "./client.ts";
-import { VIEWS_JS } from "./views.ts";
-
 /**
- * 面板单页。样式与脚本都内联，零依赖、零构建、单进程。
+ * 面板外壳。只负责一份很薄的 HTML：结构 + 两个 script 标签 + 一个样式链接。
  *
- * 拆成五份是有意的：token（调色板）、组件（类名与视觉）、运行时（DOM/消息/表格/路由）、
- * 视图（各页）、外壳（这里）。换皮只动 token，加组件只动组件，加页只动视图。
+ * 样式与脚本都在 /panel/assets/* 上单独下发并带内容指纹（见 assets.ts），
+ * 所以这里不再内联任何代码 —— 以前这一份 HTML 有两千多行，改一行要滚半天，
+ * 而且每次导航都得重下 130KB。
+ *
+ * 实现拆在 web/（运行时与视图）与 styles/（样式表）两个目录里，加页只动视图。
  */
+import type { GatewayContext } from "../types.ts";
+import { assetUrl } from "./assets.ts";
+
 export function panelHtml(ctx: GatewayContext): string {
   /* 登录密钥由 admin-key 模块派发与校验，永远启用；前端弹窗索取并存 localStorage，不进 URL。
      adminKey 缺省时（比如只拿 cfg 造 ctx 的单测）退化成一句静态说明，不要抛错 */
@@ -29,10 +29,7 @@ export function panelHtml(ctx: GatewayContext): string {
     '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">',
     '<meta name="color-scheme" content="dark light">',
     "<title>Claude Gateway</title>",
-    "<style>",
-    TOKENS_CSS,
-    COMPONENTS_CSS,
-    "</style>",
+    '<link rel="stylesheet" href="' + assetUrl("panel.css") + '">',
     "</head>",
     "<body>",
     '<div id="messages" class="cg-messages"></div>',
@@ -51,23 +48,21 @@ export function panelHtml(ctx: GatewayContext): string {
     '  </aside>',
     '  <div class="cg-main">',
     '    <header class="cg-header">',
-    '      <button class="el-button cg-burger" id="burger" title="菜单">☰</button>',
+    '      <button class="el-button cg-burger" id="burger" data-tip="菜单">☰</button>',
     '      <h1 id="pageTitle">概览</h1>',
     '      <span class="sub" id="pageSub"></span>',
     '      <span class="sp" style="flex:1"></span>',
-    '      <label class="el-switch" title="每 15 秒自动刷新"><input type="checkbox" id="auto"><span class="el-switch__core"></span></label>',
-    '      <button class="el-button" id="theme" title="切换主题">◐</button>',
+    '      <label class="el-switch" data-tip="每 15 秒自动刷新"><input type="checkbox" id="auto"><span class="el-switch__core"></span></label>',
+    '      <button class="el-button" id="theme" data-tip="切换主题">◐</button>',
     '      <button class="el-button el-button--primary" id="reload">刷新</button>',
     '    </header>',
     '    <main class="cg-content" id="view"></main>',
     '  </div>',
     '</div>',
-    '<script>',
-    CLIENT_JS,
-    VIEWS_JS,
-    '</script>',
-    '</body>',
-    '</html>',
+    '<script src="' + assetUrl("core.js") + '"></script>',
+    '<script src="' + assetUrl("views.js") + '"></script>',
+    "</body>",
+    "</html>",
     ""
   ].join("\n");
 }
