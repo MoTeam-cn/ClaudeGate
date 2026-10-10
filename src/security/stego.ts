@@ -128,6 +128,22 @@ export interface PayloadScanResult {
 const MAX_DEPTH = 48;
 
 /**
+ * 不透明字段：内容是密文或签名，只有客户端/上游能解。
+ *
+ * 扫它们没有任何意义，而一旦被「命中」改写，损坏是静默且致命的：
+ *   encrypted_content / encrypted_index —— web search 结果与引用，客户端解不开
+ *   encrypted_stdout                     —— 代码执行结果
+ *   signature                            —— thinking 块签名，对不上会被上游判成换了对话
+ * 所以这几个键直接原样带走，连遍历都不遍历。
+ */
+const OPAQUE_KEYS: ReadonlySet<string> = new Set([
+  "encrypted_content",
+  "encrypted_index",
+  "encrypted_stdout",
+  "signature"
+]);
+
+/**
  * 扫描请求载荷。命中时按写时复制重建，未命中的分支保持原引用，
  * 避免大请求体被整体深拷贝。
  */
@@ -162,6 +178,10 @@ export function scanPayload(value: unknown): PayloadScanResult {
       const src = node as Record<string, unknown>;
       const out: Record<string, unknown> = {};
       for (const k of Object.keys(src)) {
+        if (OPAQUE_KEYS.has(k)) {
+          out[k] = src[k];
+          continue;
+        }
         const next = walk(src[k], depth + 1);
         out[k] = next;
         if (next !== src[k]) changed = true;
