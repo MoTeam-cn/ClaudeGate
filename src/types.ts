@@ -69,6 +69,8 @@ export interface Config {
   contextGuard: "block" | "log" | "off";
   /** 超限容差。0.1 = 允许超出 10% 才拒绝 —— 客户端计数和真实计数不会完全一致 */
   contextHeadroom: number;
+  /** 请求体身份校验：block 拒绝（默认）/ log 只记 / off 不查 */
+  identityMode: "block" | "log" | "off";
   dataDir: string;
   secret: string;
 

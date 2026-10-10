@@ -13,7 +13,7 @@ import { createGateway } from "../src/server.ts";
 import { mergeBeta } from "../src/oauth.ts";
 import { isGuardExempt } from "../src/guard.ts";
 import { signGatewayToken } from "../src/tokens.ts";
-import { request } from "./helpers/client.ts";
+import { request, ccSystem } from "./helpers/client.ts";
 import type { AddressInfo } from "node:net";
 
 let pass = 0;
@@ -152,7 +152,8 @@ const ORDER = [
   "content-length"
 ];
 {
-  const body = JSON.stringify({ model: "claude-opus-4-5-20251101", max_tokens: 8, messages: [{ role: "user", content: "hi" }] });
+  /* 裸 http.request 绕过了 helpers 的自动补全，这里显式给一份 Claude Code 的 system */
+  const body = JSON.stringify({ model: "claude-opus-4-5-20251101", max_tokens: 8, system: ccSystem(), messages: [{ role: "user", content: "hi" }] });
   const ordered: Record<string, string> = {};
   for (const k of ORDER) {
     ordered[k] =
@@ -195,7 +196,7 @@ console.log("\n=== E. 凭据头原地改名（Console 号） ===");
   /* 客户端发的是 authorization，但号池里这个号是 Console Key：
      应该原地换成 x-api-key，位置不变 */
   const consoleAcc = gw.accounts.create({ label: "console", kind: "apikey", apiKey: "sk-ant-console-key" });
-  const body = JSON.stringify({ model: "claude-sonnet-4-5-20250929", max_tokens: 8, messages: [{ role: "user", content: "hi" }] });
+  const body = JSON.stringify({ model: "claude-sonnet-4-5-20250929", max_tokens: 8, system: ccSystem(), messages: [{ role: "user", content: "hi" }] });
   const ordered: Record<string, string> = {
     accept: "application/json",
     authorization: "Bearer " + gwToken,

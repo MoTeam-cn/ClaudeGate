@@ -8,6 +8,7 @@ const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 const STEGO_MODES: readonly StegoMode[] = ["block", "strip", "log", "off"];
 const REQ_ID_MODES: readonly ReqIdMode[] = ["error", "always", "off"];
 const CONTEXT_GUARDS: readonly string[] = ["block", "log", "off"];
+const IDENTITY_MODES: readonly string[] = ["block", "log", "off"];
 
 type Env = Record<string, string | undefined>;
 
@@ -80,6 +81,11 @@ export function loadConfig(env: Env): Config {
   const contextHeadroom =
     Number.isFinite(headroomRaw) && headroomRaw >= 0 && headroomRaw <= 1 ? headroomRaw : 0.1;
 
+  const rawIdentity = String(env.IDENTITY_MODE ?? "block").toLowerCase();
+  const identityMode: Config["identityMode"] = (IDENTITY_MODES as readonly string[]).includes(rawIdentity)
+    ? (rawIdentity as Config["identityMode"])
+    : "block";
+
   const cfg: Config = {
     port: num(env.PORT, 8080),
     host: env.HOST ?? "0.0.0.0",
@@ -90,6 +96,7 @@ export function loadConfig(env: Env): Config {
     modelLimits: parseModelLimits(env.MODEL_LIMITS),
     contextGuard,
     contextHeadroom,
+    identityMode,
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",
 

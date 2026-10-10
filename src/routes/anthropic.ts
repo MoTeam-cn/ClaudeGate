@@ -16,6 +16,7 @@ import { askedForClassifier, answeredByClassifier, createClassifierSniffer, logC
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { checkModelAllowed } from "../models.ts";
 import { checkContext } from "../model-limits.ts";
+import { checkIdentity } from "../security/identity.ts";
 import { withBeta } from "../constants.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { isUpstreamError } from "../types.ts";
@@ -84,6 +85,36 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
       log.warn("[" + (requestIdOf(res) ?? "-") + "] 模型不在清单里：" + String(model));
       anthropicError(res, 400, mcheck.reason, "invalid_request_error", "model_not_found");
       return;
+    }
+
+    /*
+     * 请求体身份校验：确认对方真是 Claude Code，不是手搓的脚本。
+     *
+     * 只对走守卫的 Key 生效 —— passthrough 的 Key 是「我自己要发我的指纹」，
+     * 那是管理员自己的用法，跟 applyGuard 的取舍保持一致。
+     * 只做在 /v1/messages 上：/v1/chat/completions 面向的是 OpenAI 形状的
+     * 第三方客户端，它们本来就不该带 Claude Code 的 system。
+     */
+    if (ctx.cfg.identityMode !== "off" && auth.useClaudeFingerprint !== false) {
+      const icheck = checkIdentity(body);
+      if (!icheck.ok) {
+        log.warn("[" + (requestIdOf(res) ?? "-") + "] 身份校验失败：" + icheck.reason);
+        if (ctx.cfg.identityMode === "block") {
+          if (tracker) {
+            tracker.outcome = "blocked";
+            tracker.blockReason = "not_claude_code";
+            tracker.blockDetail = icheck.reason;
+          }
+          anthropicError(
+            res,
+            403,
+            "这个端点只对 Claude Code 客户端开放。" + icheck.reason,
+            "permission_error",
+            "not_claude_code"
+          );
+          return;
+        }
+      }
     }
 
     /*
