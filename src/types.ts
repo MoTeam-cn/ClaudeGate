@@ -71,6 +71,11 @@ export interface Config {
   contextHeadroom: number;
   /** 请求体身份校验：block 拒绝（默认）/ log 只记 / off 不查 */
   identityMode: "block" | "log" | "off";
+  /**
+   * 单张图片的 token 上限。官方是按模型给的（Haiku 4.5 是 1568，
+   * Opus 5.5 / Sonnet 5.5 是 4784），网关拿不到这条通道，用一个可配的默认值。
+   */
+  imageMaxTokens: number;
   dataDir: string;
   secret: string;
 

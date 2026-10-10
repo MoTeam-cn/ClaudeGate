@@ -17,7 +17,8 @@ import path from "node:path";
 
 import { createGateway } from "../src/server.ts";
 import {
-  parseModelLimits, parseSize, estimateInputTokens, checkContext, limitFor, normalizeLimitKey, IMAGE_TOKENS
+  parseModelLimits, parseSize, estimateInputTokens, checkContext, limitFor, normalizeLimitKey,
+  readImageSize, imageTokens, DEFAULT_IMAGE_TOKENS
 } from "../src/model-limits.ts";
 import { signGatewayToken } from "../src/tokens.ts";
 import { cleanupDir } from "./helpers/tmp.ts";
@@ -114,10 +115,39 @@ const imgBody = {
 };
 const imgEst = estimateInputTokens(imgBody);
 ok("1.4M 字符的图不再算成 35 万 token", imgEst < 5000, "estimated=" + imgEst);
-ok("图片按固定成本计", imgEst >= IMAGE_TOKENS, "estimated=" + imgEst);
+ok("图片按上限兜底", imgEst >= DEFAULT_IMAGE_TOKENS, "estimated=" + imgEst);
 eq("带大图的请求不再被误判超限", checkContext(cfgImg, "test", imgBody).ok, true);
 ok("OpenAI 形状的 image_url 也按图片算",
   estimateInputTokens({ type: "image_url", image_url: { url: "data:image/png;base64," + bigB64 } }) < 5000);
+
+/* 真按像素算：从 base64 头部读宽高 */
+function png(w: number, h: number): string {
+  const b = Buffer.alloc(24);
+  b[0] = 0x89; b[1] = 0x50; b[2] = 0x4e; b[3] = 0x47;
+  b[4] = 0x0d; b[5] = 0x0a; b[6] = 0x1a; b[7] = 0x0a;
+  b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+  b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20);
+  return b.toString("base64");
+}
+function jpeg(w: number, h: number): string {
+  const b = Buffer.alloc(20);
+  b[0] = 0xff; b[1] = 0xd8;
+  b[2] = 0xff; b[3] = 0xe0; b.writeUInt16BE(4, 4);
+  b[8] = 0xff; b[9] = 0xc0; b.writeUInt16BE(11, 10);
+  b[12] = 8; b.writeUInt16BE(h, 13); b.writeUInt16BE(w, 15);
+  return b.toString("base64");
+}
+eq("PNG 宽高读对", JSON.stringify(readImageSize(png(1000, 800))), JSON.stringify({ width: 1000, height: 800 }));
+eq("JPEG 宽高读对", JSON.stringify(readImageSize(jpeg(640, 480))), JSON.stringify({ width: 640, height: 480 }));
+eq("GIF 宽高读对", JSON.stringify(readImageSize(Buffer.from([0x47,0x49,0x46,0x38,0x39,0x61, 0x40,0x01, 0xf0,0x00, 0,0,0,0,0,0,0,0,0,0,0,0,0,0]).toString("base64"))),
+  JSON.stringify({ width: 320, height: 240 }));
+eq("读不出来返回 null", readImageSize("not-an-image"), null);
+eq("1000×800 按 750 像素一 token", imageTokens(png(1000, 800), 4784), Math.ceil(800000 / 750));
+eq("超大图夹到上限", imageTokens(png(6000, 6000), 1600), 1600);
+eq("Opus 档上限 4784 能容纳更大图", imageTokens(png(2576, 2576), 4784), Math.min(4784, Math.ceil(2576 * 2576 / 750)));
+eq("认不出的格式退回上限", imageTokens("garbage", 1600), 1600);
+eq("没有 base64（http 图）退回上限", imageTokens(null, 1600), 1600);
+ok("小图成本远低于上限", imageTokens(png(200, 200), 4784) < 100);
 ok("普通 base64 字段仍按文本算（不是所有 data 都是图片）",
   estimateInputTokens({ type: "text", data: bigB64 }) > 100000);
 ok("文本块照旧按字符估", estimateInputTokens({ type: "text", text: "a".repeat(400) }) >= 100);

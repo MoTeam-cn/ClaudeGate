@@ -97,6 +97,7 @@ export function loadConfig(env: Env): Config {
     contextGuard,
     contextHeadroom,
     identityMode,
+    imageMaxTokens: Math.max(1, num(env.IMAGE_MAX_TOKENS, 1600)),
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",
 
