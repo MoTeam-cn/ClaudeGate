@@ -12,6 +12,7 @@ import { anthropicError } from "../http/respond.ts";
 import { readJson } from "../http/body.ts";
 import { requestIdOf, getTracker } from "../http/context.ts";
 import { inspectPayload } from "../security/inspect.ts";
+import { askedForClassifier, answeredByClassifier, createClassifierSniffer, logClassifier } from "../security/classifier.ts";
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { checkModelAllowed } from "../models.ts";
 import { withBeta } from "../constants.ts";
@@ -52,6 +53,8 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
 
     const body = verdict.payload as { stream?: boolean; model?: string };
     const wantsStream = !!body.stream;
+    /* auto mode 的服务端分类：客户端在请求里挂 safeguards，等响应带回 safeguard_results */
+    const classifierAsked = askedForClassifier(body);
     const model = typeof body.model === "string" ? body.model : null;
     if (tracker) {
       tracker.stream = wantsStream;
@@ -135,8 +138,10 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
 
     if (wantsStream) {
       const sniffer = createUsageSniffer();
+      const cSniffer = createClassifierSniffer();
       const tap = (chunk: Buffer): void => {
         sniffer.tap(chunk);
+        cSniffer.tap(chunk);
         if (!tracker) return;
         /* 每个分片同步抄一次：res 的 close 可能早于 await 之后，
            收尾时再赋值就来不及落库了 */
@@ -188,6 +193,8 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
         }
       }
 
+      logClassifier(log, requestIdOf(res) ?? "-", classifierAsked, cSniffer.saw());
+
       const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
       if (result.aborted) {
         /* 流被中途打断。运行日志里必须看得见 ——
@@ -209,6 +216,7 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
       json: true,
       transform: (parsed) => {
         const p = parsed as AnthropicResponse;
+        logClassifier(log, requestIdOf(res) ?? "-", classifierAsked, answeredByClassifier(parsed));
         if (tracker) {
           tracker.promptTokens = p.usage?.input_tokens ?? 0;
           tracker.completionTokens = p.usage?.output_tokens ?? 0;
