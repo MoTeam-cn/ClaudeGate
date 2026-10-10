@@ -44,6 +44,9 @@ function publicAccount(a: Account): Record<string, unknown> {
         }
       : null,
     email: a.email,
+    /* 面板「设备指纹」列读的就是这个。之前没传，所以永远显示「待生成」 */
+    deviceId: a.deviceId,
+    accountUuid: a.accountUuid,
     mode: a.mode,
     scope: a.scope,
     expiresAt: a.expiresAt,

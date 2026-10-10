@@ -281,13 +281,37 @@ export function observeRateLimit(headers: Record<string, unknown>): RateLimitObs
   const unifiedStatus = h["anthropic-ratelimit-unified-status"] ?? null;
   const fiveHourReset = num("anthropic-ratelimit-unified-5h-reset");
   const sevenDayReset = num("anthropic-ratelimit-unified-7d-reset");
+  /*
+   * 百分比也在响应头里 —— 二进制里这几个头名（原文引用）：
+   *   anthropic-ratelimit-unified-5h-utilization
+   *   anthropic-ratelimit-unified-7d-utilization
+   * 原先只读了 -reset 没读 -utilization，于是窗口有、数字永远空。
+   * 这条路比 /api/oauth/usage 更可靠：每个请求都会带，Console Key 也有。
+   */
+  const fiveHourUtilization = num("anthropic-ratelimit-unified-5h-utilization");
+  const sevenDayUtilization = num("anthropic-ratelimit-unified-7d-utilization");
   const overageDisabledReason = h["anthropic-ratelimit-unified-overage-disabled-reason"] ?? null;
 
-  if (!unifiedStatus && fiveHourReset === null && sevenDayReset === null && !Object.keys(dimensions).length) {
+  if (
+    !unifiedStatus &&
+    fiveHourReset === null &&
+    sevenDayReset === null &&
+    fiveHourUtilization === null &&
+    sevenDayUtilization === null &&
+    !Object.keys(dimensions).length
+  ) {
     return null;
   }
 
-  return { unifiedStatus, fiveHourReset, sevenDayReset, overageDisabledReason, dimensions };
+  return {
+    unifiedStatus,
+    fiveHourReset,
+    sevenDayReset,
+    fiveHourUtilization,
+    sevenDayUtilization,
+    overageDisabledReason,
+    dimensions
+  };
 }
 
 /** 把响应头观测转成窗口视图，用于 Console Key 这种没有 usage 接口的情况 */
@@ -296,11 +320,21 @@ export function windowsFromRateLimit(rl: RateLimitObservation | null): Record<st
   const out: Record<string, UsageWindow> = {};
   const now = Math.floor(Date.now() / 1000);
 
-  if (rl.fiveHourReset !== null) {
-    out.five_hour = { utilization: null, resetsAt: rl.fiveHourReset, status: rl.unifiedStatus ?? undefined };
+  /* 响应头给的是 0-100，内部统一存 0-1 */
+  const pct = (v: number | null): number | null => (v === null ? null : v > 1.5 ? v / 100 : v);
+  if (rl.fiveHourReset !== null || rl.fiveHourUtilization !== null) {
+    out.five_hour = {
+      utilization: pct(rl.fiveHourUtilization),
+      resetsAt: rl.fiveHourReset,
+      status: rl.unifiedStatus ?? undefined
+    };
   }
-  if (rl.sevenDayReset !== null) {
-    out.seven_day = { utilization: null, resetsAt: rl.sevenDayReset, status: rl.unifiedStatus ?? undefined };
+  if (rl.sevenDayReset !== null || rl.sevenDayUtilization !== null) {
+    out.seven_day = {
+      utilization: pct(rl.sevenDayUtilization),
+      resetsAt: rl.sevenDayReset,
+      status: rl.unifiedStatus ?? undefined
+    };
   }
 
   for (const dim of Object.keys(rl.dimensions)) {

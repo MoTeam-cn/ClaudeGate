@@ -387,6 +387,10 @@ export interface RateLimitObservation {
   unifiedStatus: string | null;
   fiveHourReset: number | null;
   sevenDayReset: number | null;
+  /** 响应头里直接给的百分比（0-100）。有了它就不必再打用量接口 ——
+   *  官方客户端就是这么读的，sgproxy 也走这条路。 */
+  fiveHourUtilization: number | null;
+  sevenDayUtilization: number | null;
   overageDisabledReason: string | null;
   dimensions: Record<string, { limit: number | null; remaining: number | null; reset: number | null }>;
 }

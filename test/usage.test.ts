@@ -61,7 +61,7 @@ const rlRejected: RateLimitObservation = {
   unifiedStatus: "rejected",
   fiveHourReset: NOW + 900,
   sevenDayReset: NOW + 86400 * 3,
-  overageDisabledReason: "out_of_credits",
+  fiveHourUtilization: null, sevenDayUtilization: null, overageDisabledReason: "out_of_credits",
   dimensions: {}
 };
 
@@ -88,7 +88,7 @@ const a6 = detectExhaustion({
   status: 429,
   errorType: "rate_limit_error",
   message: "Rate limited",
-  rateLimit: { unifiedStatus: "allowed_warning", fiveHourReset: NOW + 600, sevenDayReset: null, overageDisabledReason: null, dimensions: {} }
+  rateLimit: { unifiedStatus: "allowed_warning", fiveHourReset: NOW + 600, sevenDayReset: null, fiveHourUtilization: null, sevenDayUtilization: null, overageDisabledReason: null, dimensions: {} }
 });
 eq("普通 429 不算耗尽", a6.exhausted, false);
 
@@ -99,7 +99,7 @@ const a8 = detectExhaustion({
   status: 429,
   errorType: "rate_limit_error",
   message: "Rate limited",
-  rateLimit: { unifiedStatus: "rejected", fiveHourReset: NOW + 86400 * 10, sevenDayReset: null, overageDisabledReason: null, dimensions: {} }
+  rateLimit: { unifiedStatus: "rejected", fiveHourReset: NOW + 86400 * 10, sevenDayReset: null, fiveHourUtilization: null, sevenDayUtilization: null, overageDisabledReason: null, dimensions: {} }
 });
 ok("禁用时长封顶 6 小时", a8.resetAt !== null && a8.resetAt <= NOW + 6 * 3600 + 2, String(a8.resetAt));
 ok("溢出不可用原因带进说明", a1.reason.includes("out_of_credits"), a1.reason);
@@ -204,6 +204,25 @@ eq("由响应头推出 5 小时窗口", typeof w.five_hour?.resetsAt, "number");
 eq("维度利用率按剩余推算", Math.round((w["dim:requests"]?.utilization ?? 0) * 100), 25);
 
 /* ============ D. 端到端 ============ */
+/* ---- 响应头里的百分比：官方客户端与 sgproxy 都从这读，比用量接口可靠 ---- */
+const rlUtil = observeRateLimit({
+  "anthropic-ratelimit-unified-status": "allowed_warning",
+  "anthropic-ratelimit-unified-5h-reset": String(NOW + 900),
+  "anthropic-ratelimit-unified-5h-utilization": "42.5",
+  "anthropic-ratelimit-unified-7d-reset": String(NOW + 86400),
+  "anthropic-ratelimit-unified-7d-utilization": "13"
+});
+ok("响应头利用率已读出", rlUtil !== null);
+eq("5h 利用率原值", rlUtil?.fiveHourUtilization, 42.5);
+eq("7d 利用率原值", rlUtil?.sevenDayUtilization, 13);
+const wUtil = windowsFromRateLimit(rlUtil);
+eq("5h 窗口利用率归一成 0-1", wUtil.five_hour?.utilization, 0.425);
+eq("7d 窗口利用率归一成 0-1", wUtil.seven_day?.utilization, 0.13);
+eq("5h 重置时刻保留", wUtil.five_hour?.resetsAt, NOW + 900);
+/* 只有利用率没有 reset 时也要出窗口 */
+const rlOnly = observeRateLimit({ "anthropic-ratelimit-unified-5h-utilization": "7" });
+eq("只有利用率也能出窗口", windowsFromRateLimit(rlOnly).five_hour?.utilization, 0.07);
+
 console.log("\n=== D. 端到端 ===");
 
 /** 可控上游：能返回正常响应、额度耗尽错误，也能提供 /api/oauth/usage */
@@ -470,7 +489,7 @@ gw.scheduler.observeRateLimit(acc2.id, {
   unifiedStatus: "allowed_warning",
   fiveHourReset: Math.floor(Date.now() / 1000) + 600,
   sevenDayReset: null,
-  overageDisabledReason: null,
+  fiveHourUtilization: null, sevenDayUtilization: null, overageDisabledReason: null,
   dimensions: { requests: { limit: 100, remaining: 90, reset: Math.floor(Date.now() / 1000) + 60 } }
 });
 gw.scheduler.stop();

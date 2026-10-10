@@ -39,6 +39,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const src = (rel: string) => fs.readFileSync(path.join(here, "..", "src", "panel", rel), "utf8");
 
 /* ================= 渲染产物 ================= */
+/* 面板「设备指纹」列读的是 a.deviceId。publicAccount 漏传过这个字段，
+   于是日志里写着「device_id 已按号固定」，面板却永远显示「待生成」。 */
+const panelApiSrc = src("api.ts");
+const pubStart = panelApiSrc.indexOf("function publicAccount");
+const pubBlock = panelApiSrc.slice(pubStart, panelApiSrc.indexOf("function publicKey"));
+ok("设备指纹要传给前端", pubBlock.indexOf("deviceId:") !== -1, pubBlock.slice(0, 60));
+ok("账号 UUID 也一并传", pubBlock.indexOf("accountUuid:") !== -1);
+
 console.log("\n=== A. 渲染产物 ===");
 const html = panelHtml({ cfg: { adminToken: "test-admin" } } as unknown as GatewayContext);
 ok("不是空串", html.length > 20000, "长度=" + html.length);
