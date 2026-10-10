@@ -122,7 +122,7 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
      * 只对配了 MODEL_LIMITS 的模型生效；没配就是不限制。
      */
     if (ctx.cfg.contextGuard !== "off") {
-      const ccheck = checkContext(ctx.cfg, model, JSON.stringify(body ?? {}));
+      const ccheck = checkContext(ctx.cfg, model, body);
       if (ccheck.compaction) {
         log.debug("[" + (requestIdOf(res) ?? "-") + "] 压缩请求，跳过上下文检查（约 " + ccheck.estimated + " tokens）");
       }

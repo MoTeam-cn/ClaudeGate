@@ -17,7 +17,7 @@ import path from "node:path";
 
 import { createGateway } from "../src/server.ts";
 import {
-  parseModelLimits, parseSize, estimateInputTokens, checkContext, limitFor, normalizeLimitKey
+  parseModelLimits, parseSize, estimateInputTokens, checkContext, limitFor, normalizeLimitKey, IMAGE_TOKENS
 } from "../src/model-limits.ts";
 import { signGatewayToken } from "../src/tokens.ts";
 import { cleanupDir } from "./helpers/tmp.ts";
@@ -76,6 +76,8 @@ const cfg = { modelLimits: parseModelLimits("test=100000"), contextHeadroom: 0.1
 eq("没配的模型不限制", limitFor(cfg, "whatever")?.context, undefined);
 eq("配了的模型取到窗口", limitFor(cfg, "test")?.context, 100000);
 
+const cfgImg = cfg;
+
 /* 100000 × 1.1 = 110000 是上限 */
 const atLimit = "a".repeat(100000 * 4);
 eq("正好等于窗口放行", checkContext(cfg, "test", atLimit).ok, true);
@@ -97,6 +99,30 @@ eq("压缩请求被识别", checkContext(cfg, "test", COMPACT_BODY).compaction, 
 eq("压缩请求即便远超窗口也放行", checkContext(cfg, "test", COMPACT_BODY).ok, true);
 eq("普通大请求不会被误判成压缩", checkContext(cfg, "test", over).compaction, false);
 eq("普通大请求仍然被拦", checkContext(cfg, "test", over).ok, false);
+
+/* ================= C2. 图片不能按文本算 ================= */
+console.log("\n=== C2. 图片计价（线上误报的回归）===");
+/* 线上那次：Read 了一张 1.5MB 的 PNG，base64 约 140 万字符，
+   网关按「4 字符一 token」估出 35 万 token，把 43% 的正常请求打成了超限。 */
+const bigB64 = "A".repeat(1400000);
+const imgBody = {
+  model: "test",
+  messages: [{ role: "user", content: [
+    { type: "image", source: { type: "base64", media_type: "image/png", data: bigB64 } },
+    { type: "text", text: "看看这张图" }
+  ] }]
+};
+const imgEst = estimateInputTokens(imgBody);
+ok("1.4M 字符的图不再算成 35 万 token", imgEst < 5000, "estimated=" + imgEst);
+ok("图片按固定成本计", imgEst >= IMAGE_TOKENS, "estimated=" + imgEst);
+eq("带大图的请求不再被误判超限", checkContext(cfgImg, "test", imgBody).ok, true);
+ok("OpenAI 形状的 image_url 也按图片算",
+  estimateInputTokens({ type: "image_url", image_url: { url: "data:image/png;base64," + bigB64 } }) < 5000);
+ok("普通 base64 字段仍按文本算（不是所有 data 都是图片）",
+  estimateInputTokens({ type: "text", data: bigB64 }) > 100000);
+ok("文本块照旧按字符估", estimateInputTokens({ type: "text", text: "a".repeat(400) }) >= 100);
+eq("字符串入参仍按文本处理（老调用方式不破）",
+  estimateInputTokens("a".repeat(400)), 100);
 
 /* ================= D. 接口 ================= */
 console.log("\n=== D. /v1/models 与拦截 ===");

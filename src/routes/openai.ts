@@ -88,7 +88,7 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
 
     /* 上下文超限检查。量的是真正要发上游的那份（已翻译成 Anthropic 形状） */
     if (ctx.cfg.contextGuard !== "off") {
-      const ccheck = checkContext(ctx.cfg, requested, JSON.stringify(payload ?? {}));
+      const ccheck = checkContext(ctx.cfg, requested, payload);
       if (ccheck.compaction) {
         log.debug("[" + (requestIdOf(res) ?? "-") + "] 压缩请求，跳过上下文检查（约 " + ccheck.estimated + " tokens）");
       }

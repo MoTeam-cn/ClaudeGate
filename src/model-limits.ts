@@ -112,17 +112,26 @@ export function limitFor(cfg: Config, model: unknown): ModelLimit | null {
 }
 
 /**
- * 估算请求体的输入 token。
- *
- * 没有分词器，只能按字节构成估：ASCII 约 4 字符一个 token，
- * 非 ASCII（中文等）约 1.5 字符一个 token。宁可估高不估低 ——
- * 低估会放过超限请求，高估只是提前拦一点。
- *
- * 这里量的是**整个请求体**（system + messages + tools），
- * 这些全都是要计费的输入，跟客户端 usage 里的
- * input_tokens + cache_creation + cache_read 是同一批东西。
+ * 单张图片的估算成本。
+ * Claude 对图片是按尺寸计的（约 宽 × 高 / 750），上限约 1600 token。
+ * 我们没有解码能力，取上限最稳 —— 图片数量不会太多，多算一点无所谓；
+ * 但**绝不能把 base64 当文本算**，那会差出三个数量级。
  */
-export function estimateInputTokens(text: string): number {
+export const IMAGE_TOKENS = 1600;
+
+/** 是不是一个图片块。Anthropic 是 {type:image,source:{type:base64|url}}，OpenAI 是 {type:image_url} */
+function isImageBlock(o: Record<string, unknown>): boolean {
+  if (o.type === "image" || o.type === "image_url") return true;
+  const src = o.source;
+  if (src && typeof src === "object") {
+    const t = (src as Record<string, unknown>).type;
+    if (t === "base64" || t === "url") return true;
+  }
+  return false;
+}
+
+/** 纯文本的字符构成估算：ASCII 约 4 字符一个 token，非 ASCII 约 1.5 字符一个 */
+function countText(text: string): number {
   let ascii = 0;
   let wide = 0;
   for (let i = 0; i < text.length; i++) {
@@ -138,6 +147,37 @@ export function estimateInputTokens(text: string): number {
 }
 
 /**
+ * 估算请求体的输入 token。**结构化遍历，不是把 body 序列化成字符串数字符。**
+ *
+ * 为什么必须结构化：把整个 body 当文本数，图片的 base64 会被按
+ * 「4 字符一 token」算进去。一张 1.5MB 的 PNG 编码后约 140 万字符，
+ * 于是估出 35 万 token —— 而它真实只值约 1600 token。
+ * 客户端知道图不是文本，我们不知道，结果就是**误报超限**：
+ * 客户端认为还在 43%（不压缩），网关却以为爆了，把正常请求打掉。
+ * 实测差 3.2 倍（客户端 110.8k vs 网关 350878）。
+ *
+ * 文本部分仍然是：ASCII 约 4 字符一个 token，非 ASCII 约 1.5 字符一个。
+ * 键名也算 —— 真分词器就是这么算的。
+ */
+export function estimateInputTokens(value: unknown): number {
+  if (typeof value === "string") return countText(value);
+  if (typeof value === "number" || typeof value === "boolean") return 1;
+  if (Array.isArray(value)) {
+    let sum = 0;
+    for (const v of value) sum += estimateInputTokens(v);
+    return sum;
+  }
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if (isImageBlock(o)) return IMAGE_TOKENS;
+    let sum = 0;
+    for (const [k, v] of Object.entries(o)) sum += countText(k) + estimateInputTokens(v);
+    return sum;
+  }
+  return 0;
+}
+
+/**
  * /compact 压缩请求的特征串。
  *
  * 压缩这件事本身就要把**整个超长上下文**发给上游 —— 如果连它也拦，
@@ -150,8 +190,16 @@ export function estimateInputTokens(text: string): number {
  */
 const COMPACT_MARKER = "create a detailed summary of the conversation so far";
 
-export function isCompactionRequest(bodyText: string): boolean {
-  return bodyText.indexOf(COMPACT_MARKER) !== -1;
+export function isCompactionRequest(body: unknown): boolean {
+  if (typeof body === "string") return body.indexOf(COMPACT_MARKER) !== -1;
+  if (!body || typeof body !== "object") return false;
+  const sys = (body as Record<string, unknown>).system;
+  const blocks = Array.isArray(sys) ? sys : [sys];
+  for (const b of blocks) {
+    const t = typeof b === "string" ? b : (b && typeof b === "object" ? (b as Record<string, unknown>).text : "");
+    if (typeof t === "string" && t.indexOf(COMPACT_MARKER) !== -1) return true;
+  }
+  return false;
 }
 
 export interface ContextCheck {
@@ -172,16 +220,16 @@ export interface ContextCheck {
  * 每次调用都查一遍。
  * 没给这个模型配窗口就放行 —— 不配置等于不限制，别替用户做主。
  */
-export function checkContext(cfg: Config, model: unknown, bodyText: string): ContextCheck {
+export function checkContext(cfg: Config, model: unknown, body: unknown): ContextCheck {
   const limit = limitFor(cfg, model);
-  const estimated = estimateInputTokens(bodyText);
+  const estimated = estimateInputTokens(body);
   if (!limit) return { ok: true, estimated, limit: null, ceiling: null, reason: "", compaction: false };
 
   /*
    * 压缩请求放行。拦它等于把用户锁死 —— 上下文已经超了，压缩是唯一的自救手段，
    * 这时候回 400 只会让人只能 /clear。压缩完上下文就小了，下一轮自然回到限制内。
    */
-  if (isCompactionRequest(bodyText)) {
+  if (isCompactionRequest(body)) {
     return { ok: true, estimated, limit, ceiling: null, reason: "", compaction: true };
   }
 
