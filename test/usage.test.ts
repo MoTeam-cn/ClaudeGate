@@ -134,6 +134,18 @@ eq("额外用量解析", (u1.extraUsage as Record<string, unknown>)?.monthly_lim
 const u2 = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 10, resets_at: "2026-10-10T00:00:00Z" } } });
 eq("ISO 时间也能解析", typeof u2.windows.five_hour?.resetsAt, "number");
 
+/* 不带时区标记的串必须按 UTC 解释。
+   Date.parse 默认按**本机时区**解释它 —— 也就是网关进程所在容器的 TZ。
+   容器 TZ 一变，同一份上游数据就解析出不同的时刻，面板上的重置时间跟着飘。
+   上游这些时间全是 UTC 语义，所以显式补 Z。 */
+const UTC_1000 = Math.floor(Date.parse("2026-10-10T00:00:00Z") / 1000);
+const u2b = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 10, resets_at: "2026-10-10T00:00:00" } } });
+eq("naive ISO 按 UTC 解释（不随容器 TZ 飘）", u2b.windows.five_hour?.resetsAt, UTC_1000);
+const u2c = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 10, resets_at: "2026-10-10 00:00:00" } } });
+eq("空格分隔的 naive ISO 也按 UTC", u2c.windows.five_hour?.resetsAt, UTC_1000);
+const u2d = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 10, resets_at: "2026-10-10T08:00:00+08:00" } } });
+eq("显式带偏移的不被改写", u2d.windows.five_hour?.resetsAt, UTC_1000);
+
 const u3 = normalizeOauthUsage({ rate_limits_available: false, rate_limits: null });
 eq("无用量接口时不报错", u3.ok, true);
 eq("无窗口", Object.keys(u3.windows).length, 0);

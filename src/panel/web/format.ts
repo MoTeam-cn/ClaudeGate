@@ -5,11 +5,31 @@
  * 服务端把片段按 index.ts 里的顺序拼成一个 bundle 再下发给浏览器。
  */
 export const FORMAT_JS = String.raw`
+/* 时间一律按**浏览器所在时区**渲染。
+   网关送过来的都是 unix 秒（与时区无关），下面这些 getXxx 取的就是本地时区，
+   所以不用做任何换算 —— 换台机器、换个时区，显示自然跟着变。
+   但「08:00」这个数字本身看不出是哪儿的八点，所以再给一个带标注的版本给 title 用。 */
 function fmtTime(ms){
   if(!ms) return "-";
   var d = new Date(ms);
   function p(n){ return n<10?"0"+n:""+n; }
   return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+}
+/** 当前浏览器时区的偏移标签，例如 UTC+08:00 */
+function tzLabel(){
+  var off = -new Date().getTimezoneOffset();
+  var sign = off < 0 ? "-" : "+";
+  var a = Math.abs(off), h = Math.floor(a/60), m = a%60;
+  return "UTC" + sign + (h<10?"0":"")+h + ":" + (m<10?"0":"")+m;
+}
+function tzName(){
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch(e){ return ""; }
+}
+/** 带时区标注的完整时间：2026-10-11 08:00:00 (UTC+08:00 Asia/Shanghai) */
+function fmtTimeTz(ms){
+  if(!ms) return "-";
+  var n = tzName();
+  return fmtTime(ms) + " (" + tzLabel() + (n ? " " + n : "") + ")";
 }
 function fmtAgo(ms){
   if(!ms) return "-";

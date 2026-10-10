@@ -78,12 +78,32 @@ function utilizationOf(o: Record<string, unknown>, name: string): number | null 
   return util === null ? null : util / 100;
 }
 
-/** resets_at 可能是 unix 秒、unix 毫秒，或 ISO 字符串 */
+/**
+ * 不带时区标记的 ISO 串，例如 2026-10-11T00:00:00 或 2026-10-11 00:00:00。
+ *
+ * Date.parse 对这种串是按**本机时区**解释的 —— 也就是网关进程所在容器的 TZ。
+ * 容器 TZ 一变，同一份上游数据就解析出不同的时刻。上游给的重置时间全是 UTC 语义
+ * （见下面 resetOrNull 的注释），所以这里显式补 Z，把环境依赖彻底去掉。
+ */
+const NAIVE_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * resets_at 可能是 unix 秒、unix 毫秒，或 ISO 字符串。
+ * 统一归一化成 **unix 秒**（与时区无关），前端再按浏览器所在时区渲染。
+ *
+ * 上游两种来源的真实语义：
+ *   · GET /api/oauth/usage 的 resets_at 是 **ISO 8601 带 Z**（UTC）。
+ *     官方客户端自己也是这么转的（原文引用，SPEC.md）：
+ *       let o=(s)=>s?{utilization:s.utilization*100, resets_at:new Date(s.resets_at*1000).toISOString()}:void 0
+ *   · 响应头 anthropic-ratelimit-unified-5h-reset / -7d-reset 是 **unix 秒**，
+ *     本来就是时区无关的。
+ */
 function resetOrNull(v: unknown): number | null {
   const n = numOrNull(v);
   if (n !== null) return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
   if (typeof v === "string") {
-    const t = Date.parse(v);
+    const s = v.trim();
+    const t = Date.parse(NAIVE_DATETIME_RE.test(s) ? s.replace(" ", "T") + "Z" : s);
     if (Number.isFinite(t)) return Math.floor(t / 1000);
   }
   return null;

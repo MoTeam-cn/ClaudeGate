@@ -39,7 +39,7 @@ function usageRow(name, w, active){
   head.appendChild(nm);
   if(active) head.appendChild(h("span",{class:"cg-meter__now",text:"当前"}));
   head.appendChild(h("span",{class:"cg-meter__pct"+(pct===null?" is-empty":""),text:pct===null?"—":pct+"%"}));
-  if(w && w.resetsAt) head.appendChild(h("span",{class:"cg-meter__reset",title:CG.fmtTime(w.resetsAt*1000),text:shortTime(w.resetsAt)}));
+  if(w && w.resetsAt) head.appendChild(h("span",{class:"cg-meter__reset",title:CG.fmtTimeTz(w.resetsAt*1000),text:shortTime(w.resetsAt)}));
   row.appendChild(head);
   var bar = h("div",{class:"cg-meter__bar"});
   if(pct!==null){

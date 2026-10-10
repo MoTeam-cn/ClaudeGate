@@ -66,7 +66,7 @@ function accountListTable(list, mode){
     { key:"label", label:"账号", sortable:true },
     { key:"reason", label:"原因", wrap:true, render:function(r){ return h("span",{class:"tiny",text:r.reason||"-"}); } },
     { key:"until", label: mode==="exhausted"?"预计恢复":"恢复时间", sortable:true,
-      render:function(r){ return r.until ? CG.fmtTime(r.until*1000) : h("span",{class:"muted",text:"待上游恢复"}); } },
+      render:function(r){ return r.until ? h("span",{title:CG.fmtTimeTz(r.until*1000),text:CG.fmtTime(r.until*1000)}) : h("span",{class:"muted",text:"待上游恢复"}); } },
     { key:"act", label:"操作", render:function(r){
         var box = h("div",{class:"cg-actions"});
         box.appendChild(h("button",{class:"el-button el-button--small",text:"立即恢复",onclick:function(){ actRevive(r.id); }}));
