@@ -42,30 +42,35 @@ function scopeLabelOf(scope: Record<string, unknown> | null): string | null {
 }
 
 /**
- * 从一行用量里取百分比。
+ * 从一行用量里取「已用比例」（0-1）。
  *
- * 二进制里有两个不同的字段名：
- *   · rate_limits.limits[] 里叫 percent（0-100）
- *   · cedar-ember 的 grant 里叫 percent_used，而且是个按 limit_type 索引的映射
- *     （z.record(...)，客户端自己再按已知的 limit_type 过滤成 0-100 的整数）
- * 所以两种都要认：先取标量，取不到再从映射里按行名取，再取不到就取映射里的最大值。
+ * **单位由字段名决定，不看数值大小。**
+ * 早先写成「超过 1.5 就除以 100」，那是错的：上游给 1（=1%）会被当成 1.0，
+ * 面板渲染成 100%；给 1.2 就渲染成 120%。
+ *
+ * 二进制里两个字段各有各的单位：
+ *   · rate_limits.limits[].percent —— "Share of the window used, 0-100."，百分数
+ *   · cedar-ember 的 percent_used —— 同样是 0-100，还是个按 limit_type 索引的映射
+ *   · 老形状的 utilization —— 0-1 的小数
  */
-function percentOf(o: Record<string, unknown>, name: string): number | null {
-  const direct = numOrNull(o.percent ?? o.utilization ?? o.used_percent ?? o.percentUsed);
-  if (direct !== null) return direct;
+function utilizationOf(o: Record<string, unknown>, name: string): number | null {
+  /* 百分数：一律除以 100 */
+  const pct = numOrNull(o.percent ?? o.used_percent ?? o.percentUsed);
+  if (pct !== null) return pct / 100;
   const rec = o.percent_used;
   if (rec && typeof rec === "object" && !Array.isArray(rec)) {
     const m = rec as Record<string, unknown>;
     const exact = numOrNull(m[name]);
-    if (exact !== null) return exact;
+    if (exact !== null) return exact / 100;
     let best: number | null = null;
     for (const k of Object.keys(m)) {
       const x = numOrNull(m[k]);
       if (x !== null && (best === null || x > best)) best = x;
     }
-    if (best !== null) return best;
+    if (best !== null) return best / 100;
   }
-  return null;
+  /* 老形状：本来就是 0-1 的小数，原样用 */
+  return numOrNull(o.utilization);
 }
 
 /** resets_at 可能是 unix 秒、unix 毫秒，或 ISO 字符串 */
@@ -134,10 +139,8 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
       null;
     if (!name) continue;
 
-    /* 百分比：新形状是 percent，老形状是 utilization。percent 可能是 0，所以用 ?? 而不是 || */
-    const rawUtil = percentOf(o, name);
-    /* 0-100 -> 0-1。老形状本身就是小数，所以只在明显超过 1 时才换算 */
-    const util = rawUtil === null ? null : rawUtil > 1.5 ? rawUtil / 100 : rawUtil;
+    /* 单位由字段名决定，不看大小 —— 见 utilizationOf 的注释 */
+    const util = utilizationOf(o, name);
 
     const prev = windows[name] ?? { utilization: null, resetsAt: null };
     const sev = typeof o.severity === "string" ? o.severity : (typeof o.status === "string" ? o.status : undefined);
@@ -320,8 +323,11 @@ export function windowsFromRateLimit(rl: RateLimitObservation | null): Record<st
   const out: Record<string, UsageWindow> = {};
   const now = Math.floor(Date.now() / 1000);
 
-  /* 响应头给的是 0-100，内部统一存 0-1 */
-  const pct = (v: number | null): number | null => (v === null ? null : v > 1.5 ? v / 100 : v);
+  /*
+   * 响应头 anthropic-ratelimit-unified-5h-utilization 是 0-100（sgproxy 那边字段就叫
+   * utilization_pct）。一律除以 100，同样不看数值大小。
+   */
+  const pct = (v: number | null): number | null => (v === null ? null : v / 100);
   if (rl.fiveHourReset !== null || rl.fiveHourUtilization !== null) {
     out.five_hour = {
       utilization: pct(rl.fiveHourUtilization),

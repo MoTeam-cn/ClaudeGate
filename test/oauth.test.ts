@@ -254,15 +254,18 @@ console.log("\n=== F. profile 拿不到时不能挡住建号 ===");
   profileStatus = 200;
 }
 
-console.log("\n=== G. limits[] 新形状（utilization 是 0-100）===");
+console.log("\n=== G. limits[] 新形状（percent 是 0-100）===");
 {
+  /* 字段名是 percent —— 二进制里的 schema 原文引用：
+       "Share of the window used, 0-100."
+     老形状 rate_limits.<name>.utilization 才是 0-1 的小数。单位由字段名决定。 */
   usagePayload = {
     subscription_type: "pro",
     rate_limits_available: true,
     limits: [
-      { kind: "session", group: "session", utilization: 42, severity: "normal",
+      { kind: "session", group: "session", percent: 42, severity: "normal",
         resetsAt: new Date(Date.now() + 3600e3).toISOString() },
-      { kind: "weekly_scoped", group: "weekly", utilization: 7.5, severity: "warning",
+      { kind: "weekly_scoped", group: "weekly", percent: 7.5, severity: "warning",
         scope: { label: "Opus" }, resetsAt: new Date(Date.now() + 86400e3).toISOString() }
     ]
   };

@@ -171,6 +171,20 @@ eq("没标的就不是头条", ur.windows.weekly_all?.isActive, undefined);
 const uz = normalizeOauthUsage({ limits: [{ kind: "session", percent: 0, severity: "normal" }] });
 eq("percent=0 要保留成 0，不能变 null", uz.windows.session?.utilization, 0);
 
+/* 单位由字段名定，不看数值大小。
+   早先的「超过 1.5 才除以 100」会把 percent=1（1%）当成 1.0 渲染成 100%。 */
+const uOne = normalizeOauthUsage({ limits: [{ kind: "session", percent: 1 }] });
+eq("percent=1 是 1%，不是 100%", uOne.windows.session?.utilization, 0.01);
+const uOneHalf = normalizeOauthUsage({ limits: [{ kind: "session", percent: 1.5 }] });
+eq("percent=1.5 是 1.5%", uOneHalf.windows.session?.utilization, 0.015);
+const uHundred = normalizeOauthUsage({ limits: [{ kind: "session", percent: 100 }] });
+eq("percent=100 是 100%", uHundred.windows.session?.utilization, 1);
+/* 老形状的 utilization 是小数，1 就是 100% */
+const uOldFull = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 1 }] });
+eq("老形状 utilization=1 是 100%", uOldFull.windows.session?.utilization, 1);
+const uOldSmall = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 0.01 }] });
+eq("老形状 utilization=0.01 是 1%", uOldSmall.windows.session?.utilization, 0.01);
+
 /* 顶层 limits 与嵌套两种位置都认；老字段名 utilization 也还认 */
 const uTop = normalizeOauthUsage({ limits: [{ kind: "weekly_all", percent: 55 }] });
 eq("顶层 limits 也认", uTop.windows.weekly_all?.utilization, 0.55);
