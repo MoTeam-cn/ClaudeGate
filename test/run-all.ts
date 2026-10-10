@@ -2,7 +2,8 @@
 /** 依次跑全部测试文件，聚合退出码。 */
 import { spawnSync } from "node:child_process";
 
-const files = ["test/smoke.ts", "test/stego.test.ts", "test/pool.test.ts", "test/usage.test.ts", "test/headers.test.ts",
+const files = ["test/smoke.ts", "test/attribution.test.ts",
+  "test/stego.test.ts", "test/pool.test.ts", "test/usage.test.ts", "test/headers.test.ts",
   "test/userid.test.ts", "test/proxy.test.ts",
   "test/transport.test.ts", "test/agent.test.ts", "test/panel.test.ts", "test/gateway-contract.test.ts", "test/ja3.test.ts", "test/oauth.test.ts",
   "test/ipcheck.test.ts", "test/models.test.ts", "test/admin-key.test.ts"];

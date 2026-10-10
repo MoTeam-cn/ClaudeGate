@@ -1,5 +1,7 @@
 import { buildUpstreamHeaders, upstreamRequest } from "./upstream.ts";
 import { rewriteUserId } from "./userid.ts";
+import { injectAttributionHeader } from "./fingerprint/attribution.ts";
+import { CC_VERSION } from "./constants.ts";
 import crypto from "node:crypto";
 import { collect, decodeStream } from "./upstream.ts";
 import { classifyUpstreamError } from "./pool/observe.ts";
@@ -132,6 +134,18 @@ async function sendOnce(
      替它改成 text/event-stream 会多一个可被识别的差异 */
   if (opts.stream && !Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
     headers["accept"] = "text/event-stream";
+  }
+
+  /*
+   * 归因头。官方客户端把它作为 system 的第一段 text 块发出去 ——
+   * 不是 HTTP 头，是 body 里的一段文本，所以必须在这里改 body。
+   * 缺了它上游看到的就不是一个 Claude Code 客户端。
+   */
+  if (cfg.attributionHeader && body && typeof body === "object" && !Array.isArray(body)) {
+    const b = body as Record<string, unknown>;
+    if (Array.isArray(b.messages) || b.system !== undefined) {
+      injectAttributionHeader(b, CC_VERSION, { entrypoint: cfg.attributionEntrypoint });
+    }
   }
 
   /* 一个号固定一个 device_id，别让上游看到同一个号在到处漂 */

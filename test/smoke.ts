@@ -189,7 +189,11 @@ ok("403 不列缺失的头", !bare.text.includes("user-agent") && !bare.text.inc
   eq("OpenAI object", oaiJson.object, "chat.completion");
   eq("gpt-4o 映射", oaiJson.model, "claude-sonnet-5");
   eq("上游 model 已映射", upstreamBody.model, "claude-sonnet-5");
-  eq("system 已提取", upstreamBody.system, "be brief");
+  /* system 现在是数组：官方客户端会把归因头插在第一段，后面才是原始 system */
+  const sysBlocks = upstreamBody.system as Array<Record<string, unknown>>;
+  ok("system 变成数组", Array.isArray(sysBlocks), JSON.stringify(upstreamBody.system).slice(0, 120));
+  eq("原始 system 保留", sysBlocks[1]?.text, "be brief");
+  ok("第一段是归因头", String(sysBlocks[0]?.text ?? "").startsWith("x-anthropic-billing"), String(sysBlocks[0]?.text ?? "").slice(0, 40));
   eq("tools 已转换", (upstreamBody.tools as Array<Record<string, unknown>>)[0].name, "get_weather");
   eq("finish_reason 映射", choice0.finish_reason, "tool_calls");
   eq(

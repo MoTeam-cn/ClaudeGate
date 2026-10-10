@@ -75,6 +75,8 @@ export function loadConfig(env: Env): Config {
     host: env.HOST ?? "0.0.0.0",
     publicUrl: stripSlash(env.PUBLIC_URL ?? ""),
     upstreamRetries: Math.max(1, Math.min(10, num(env.UPSTREAM_RETRIES, 3))),
+    attributionHeader: String(env.ATTRIBUTION_HEADER ?? "on").toLowerCase() !== "off",
+    attributionEntrypoint: env.CLAUDE_CODE_ENTRYPOINT ?? "cli",
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",
 

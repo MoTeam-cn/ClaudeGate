@@ -48,6 +48,10 @@ export interface Config {
   publicUrl: string;
   /** 上游 429/5xx 时最多换几个号重试（含第一次，所以 1 = 不重试） */
   upstreamRetries: number;
+  /** 注入 Claude Code 的归因头（system 第一段）。关掉只用于对照排查 */
+  attributionHeader: boolean;
+  /** cc_entrypoint 的值，默认 cli */
+  attributionEntrypoint: string;
   dataDir: string;
   secret: string;
 
