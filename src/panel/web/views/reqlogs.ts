@@ -38,8 +38,11 @@ function renderReqLogs(box){
   host.appendChild(cardEl);
 
   function load(){
-    CG.clear(listHost);
-    listHost.appendChild(CG.skeleton(6));
+    /* 骨架屏只在「这一页还没有内容」时摆。已经有表格就别清 ——
+       清了再插骨架，一旦数据没变被 shouldPaint 挡下来提前 return，
+       骨架就永远挂在那儿了（就是「加载动画卡住」）。
+       重新查询的反馈交给顶部加载条。 */
+    if(!listHost.firstChild) listHost.appendChild(CG.skeleton(6));
     var q = "limit="+reqState.size+"&offset="+((reqState.page-1)*reqState.size);
     if(reqState.outcome) q += "&outcome="+encodeURIComponent(reqState.outcome);
     if(reqState.protocol) q += "&protocol="+encodeURIComponent(reqState.protocol);

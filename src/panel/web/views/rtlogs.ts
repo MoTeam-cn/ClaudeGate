@@ -33,8 +33,8 @@ function renderRtLogs(box){
   host.appendChild(card("运行日志", h("div",{},[listHost, pageHost])));
 
   function load(){
-    CG.clear(listHost);
-    listHost.appendChild(CG.skeleton(8));
+    /* 同 reqlogs：只有第一次才摆骨架，之后保留旧表格，别让骨架卡在那儿 */
+    if(!listHost.firstChild) listHost.appendChild(CG.skeleton(8));
     var q = "limit="+rtState.size+"&offset="+((rtState.page-1)*rtState.size);
     if(rtState.level) q += "&level="+encodeURIComponent(rtState.level);
     if(rtState.search) q += "&search="+encodeURIComponent(rtState.search);

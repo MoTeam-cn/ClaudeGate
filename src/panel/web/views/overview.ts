@@ -7,8 +7,11 @@
 export const OVERVIEW_JS = String.raw`
 /* ============ 概览 ============ */
 function renderOverview(box){
-  box.appendChild(h("div",{class:"el-skeleton"}));
   var host = h("div");
+  /* 骨架屏放进 host —— paint 换内容时会连同它一起清掉。
+     以前它挂在 box 上，而且是个**空** div：既不会被清掉、又什么都看不见，
+     等于把「骨架永远留着」这个 bug 藏起来了。 */
+  host.appendChild(CG.skeleton(6));
   box.appendChild(host);
   CG.onRefresh(function(){
     return CG.api("overview").then(function(d){
@@ -58,6 +61,10 @@ function renderOverview(box){
       }
       return d;
     });
+    }).catch(function(e){
+      /* 第一次就失败的话 host 里还是骨架，手动摘掉，别让它一直转 */
+      if(!host.getAttribute("data-paint")) CG.clear(host);
+      throw e;
     });
   });
 }
