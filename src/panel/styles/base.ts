@@ -41,9 +41,16 @@ a:hover{color:var(--el-color-primary-light-3)}
 /* ============ 布局 ============ */
 .cg-app{display:flex;min-height:100vh}
 .cg-side{
-  width:var(--cg-sidebar-w);flex:0 0 var(--cg-sidebar-w);
+  width:var(--cg-sidebar-w);flex:0 0 var(--cg-sidebar-w);min-width:0;
   background:var(--el-bg-color-overlay);border-right:1px solid var(--el-border-color-lighter);
   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  /* 折叠做成收宽度，不用 display:none —— 那样没法有过渡，一按就整块跳掉。
+     overflow:hidden 负责把里面的品牌/菜单/页脚裁干净。
+     min-width:0 是必须的：flex 项默认 min-width:auto，不收它宽度收不到 0 */
+  overflow:hidden;
+  transition:width var(--el-transition-duration) var(--el-transition-function-ease-in-out-bezier),
+             flex-basis var(--el-transition-duration) var(--el-transition-function-ease-in-out-bezier),
+             border-right-color var(--el-transition-duration) var(--el-transition-function-ease-in-out-bezier);
 }
 .cg-brand{display:flex;align-items:center;gap:10px;height:var(--cg-header-h);padding:0 16px;border-bottom:1px solid var(--el-border-color-lighter);flex:0 0 auto}
 .cg-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--el-color-success);flex:0 0 auto}
@@ -60,6 +67,12 @@ a:hover{color:var(--el-color-primary-light-3)}
 .cg-menu-item .ico{width:16px;height:16px;flex:0 0 16px}
 .cg-menu-item .badge{margin-left:auto}
 .cg-side-foot{padding:10px 16px;border-top:1px solid var(--el-border-color-lighter);font-size:11px;color:var(--el-text-color-secondary)}
+/* 折叠动画期间，侧栏里三块内容的宽度钉死在「展开时」的宽度。
+   不钉的话，容器一收窄，里面的品牌名就折行、菜单项被压扁 —— 就是那个挤压感。
+   宽度固定 + 父级 overflow:hidden，动画只是把它裁掉，内容自身完全不重排。
+   注意只定 width 不动 flex：.cg-menu 还要靠 flex:1 撑满纵向 */
+.cg-side > *{width:var(--cg-sidebar-w)}
+.cg-brand b,.cg-brand small,.cg-side-foot,.cg-menu-item span{white-space:nowrap}
 
 .cg-main{flex:1;min-width:0;display:flex;flex-direction:column}
 .cg-header{
@@ -71,7 +84,18 @@ a:hover{color:var(--el-color-primary-light-3)}
 .cg-header .sub{font-size:var(--el-font-size-extra-small);color:var(--el-text-color-secondary)}
 .cg-header .sp{flex:1}
 .cg-content{padding:var(--cg-content-pad);flex:1;min-width:0}
-.cg-burger{display:none}
+/* 汉堡按钮桌面端也在，负责折叠侧栏；移动端走抽屉。
+   这里不能写 display:none —— 同一个文件里 .el-button 在它后面，两边选择器权重
+   完全一样，后面的赢，写了也白写（这就是之前桌面端点不动的原因之一） */
+.cg-burger{display:inline-flex}
+/* 桌面端的折叠。刻意限定 >=901px：移动端侧栏是 fixed 抽屉，
+   在这边收宽度会让抽屉一起缩没 */
+@media (min-width:901px){
+  .cg-app.is-collapsed .cg-side{
+    width:0;flex-basis:0;
+    border-right-color:transparent;
+  }
+}
 
 /* ============ 卡片 ============ */
 .el-card{

@@ -74,7 +74,6 @@ export const AUTH_CSS = `
     transition:transform var(--el-transition-duration);box-shadow:var(--el-box-shadow-dark);
   }
   .cg-side.is-open{transform:none}
-  .cg-burger{display:inline-flex}
   .cg-header h1{font-size:var(--el-font-size-base)}
   .cg-header .sub{display:none}
   .cg-scrim{position:fixed;inset:0;background:var(--el-mask-color);z-index:2000}

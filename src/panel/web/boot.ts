@@ -8,6 +8,7 @@ export const BOOT_JS = String.raw`
 /* ============ 启动 ============ */
 document.addEventListener("DOMContentLoaded", function(){
   applyTheme(localStorage.getItem("cg_theme") || "dark");
+  restoreSide();
   var init = (location.hash||"").replace("#/","");
   current = ROUTES.indexOf(init)===-1 ? "overview" : init;
   $$("#menu .cg-menu-item").forEach(function(e){
