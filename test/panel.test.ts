@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { panelHtml } from "../src/panel/html.ts";
+import { PANEL_CSS } from "../src/panel/styles/index.ts";
 import { CORE_JS } from "../src/panel/web/index.ts";
 import { VIEWS_JS } from "../src/panel/web/views/index.ts";
 import { createGateway } from "../src/server.ts";
@@ -68,6 +69,16 @@ eq("没有内联 style", (html.match(/<style>/g) ?? []).length, 0);
 ok("样式表带内容指纹", html.includes('href="/panel/assets/panel.css?v='));
 ok("脚本地址带内容指纹",
   html.includes('src="/panel/assets/core.js?v=') && html.includes('src="/panel/assets/views.js?v='));
+
+/* 样式表必须带上设计 token。
+   拆分时漏过一次 TOKENS_CSS：全站 var(--el-*) 解析为空，面板变成裸 HTML。
+   这类事故肉眼一眼能看出，但测试里没人拦得住 —— 所以这里钉死。 */
+ok("样式表带上了 :root 设计变量", PANEL_CSS.includes(":root{") && PANEL_CSS.includes("--el-bg-color"),
+  "长度=" + PANEL_CSS.length);
+ok("样式表里没有 JS 的 IIFE 收尾", !PANEL_CSS.includes("})();"));
+ok("样式表体量正常（少了 token 会明显变小）", PANEL_CSS.length > 38000, "长度=" + PANEL_CSS.length);
+ok("两个脚本 bundle 各自是完整 IIFE",
+  CORE_JS.trimEnd().endsWith("})();") && VIEWS_JS.trimEnd().endsWith("})();"));
 ok("有 viewport（移动端的前提）", html.includes("width=device-width"));
 ok("有消息容器", html.includes('id="messages"'));
 ok("六个菜单项", (html.match(/data-route="/g) ?? []).length === 6, String((html.match(/data-route="/g) ?? []).length));
