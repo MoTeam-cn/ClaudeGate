@@ -164,6 +164,11 @@ async function sendOnce(
   }
 
   const payload = Buffer.from(JSON.stringify(body), "utf8");
+  /* 每次向上游发请求都给这个号记一笔，失败也算 —— 它确实被用掉了一次。
+     放在发请求之前：连接层直接抛错（比如代理挂了）时也算，那同样是一次占用。
+     以前 bumpRequest 定义了、导出了，但一个调用点都没有，于是 request_count
+     永远是建表时的默认值 0，面板「请求」列恒为 0。 */
+  if (account) ctx.accounts.bumpRequest(account.id);
   const res = await upstreamRequest(cfg, { method: "POST", path, headers, body: payload });
   return { ...res, account };
 }

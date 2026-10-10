@@ -344,6 +344,16 @@ eq("账号列表长度", accRows.length, 2);
 ok("账号视图不回传 access_token", !("accessToken" in (accRows[0] ?? {})), JSON.stringify(accRows[0]).slice(0, 200));
 ok("账号视图不回传 apiKey 原文", !("apiKey" in (accRows[0] ?? {})));
 
+/* 计数两列。
+   曾经 request_count 有列、有 bumpRequest 自增函数，但一个调用点都没有，
+   而 publicAccount 也没往外传 —— 前端拿到 undefined，fmtNum 兜底成 0，
+   面板上「请求」列就永远是 0。这条断言同时钉住「记数」和「透出」两头。 */
+ok("账号视图带 requestCount", "requestCount" in (accRows[0] ?? {}), JSON.stringify(accRows[0]).slice(0, 160));
+ok("账号视图带 errorCount", "errorCount" in (accRows[0] ?? {}));
+const served = accRows.filter((x) => Number(x.requestCount) > 0);
+ok("跑过请求的号请求数大于 0", served.length > 0,
+  JSON.stringify(accRows.map((x) => ({ id: x.id, req: x.requestCount, err: x.errorCount }))));
+
 const keyList = await getText(addr.port, "/panel/api?action=keys&key=" + ADMIN);
 eq("Key 列表 200", keyList.status, 200);
 ok("Key 列表长度大于 0", (asRecord(keyList.json).data as unknown[]).length > 0);

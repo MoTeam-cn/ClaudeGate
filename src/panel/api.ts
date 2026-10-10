@@ -51,6 +51,9 @@ function publicAccount(a: Account): Record<string, unknown> {
     scope: a.scope,
     expiresAt: a.expiresAt,
     errorCount: a.errorCount,
+    /* 面板「请求」列读的就是这个。以前漏传，前端拿到 undefined，
+       CG.fmtNum 兜底成 0 —— 看起来就像「后端根本没返回这一项」 */
+    requestCount: a.requestCount,
     lastError: a.lastError,
     cooldownUntil: a.cooldownUntil,
     weight: a.weight,

@@ -62,11 +62,17 @@ function renderAccounts(box){
           } },
         { key:"usage", label:"用量", width:"236px", render:function(a){ return usageCell(a); } },
         { key:"requestCount", label:"请求", sortable:true, align:"right", width:"76px",
-          render:function(a){ return h("span",{class:"cg-num",text:CG.fmtNum(a.requestCount)}); } },
+          render:function(a){
+            return h("span",{class:"cg-num",title:"这个号被用过多少次。每次向上游发请求都算，失败也算",
+              text:CG.fmtNum(a.requestCount)});
+          } },
+        /* 错误数是**连续**的，不是累计：下一次成功就清零（scheduler 的 reportSuccess）。
+           所以健康账号这里是 0 是正常的，不是没统计。标题里写明白，免得误读 */
         { key:"errorCount", label:"错误", sortable:true, align:"right", width:"68px",
           render:function(a){
             var n = a.errorCount || 0;
-            return h("span",{class:"cg-num",style:n?{color:"var(--el-color-danger)"}:null,text:CG.fmtNum(n)});
+            return h("span",{class:"cg-num",title:"连续错误次数。下一次成功就清零，所以健康账号这里是 0",
+              style:n?{color:"var(--el-color-danger)"}:null,text:CG.fmtNum(n)});
           } },
         { key:"deviceId", label:"设备指纹", filter:{type:"text",placeholder:"搜指纹"},
           filterValue:function(a){ return a.deviceId || ""; },
