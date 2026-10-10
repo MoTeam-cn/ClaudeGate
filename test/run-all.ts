@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const files = ["test/smoke.ts", "test/attribution.test.ts",
   "test/encoding.test.ts",
+  "test/stream.test.ts",
   "test/stego.test.ts", "test/pool.test.ts", "test/usage.test.ts", "test/headers.test.ts",
   "test/userid.test.ts", "test/proxy.test.ts",
   "test/transport.test.ts", "test/agent.test.ts", "test/panel.test.ts", "test/gateway-contract.test.ts", "test/ja3.test.ts", "test/oauth.test.ts",

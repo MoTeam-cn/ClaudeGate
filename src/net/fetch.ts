@@ -63,17 +63,35 @@ export async function fetchUpstream(cfg: Config, opts: UpstreamCallOptions): Pro
     }
   }
 
+  /*
+   * 超时只覆盖「连上 + 拿到响应头」，**不能盖住响应体**。
+   *
+   * AbortSignal.timeout 是总时长，到点无条件 abort。挂在流式响应上就等于
+   * 「任何超过 upstreamTimeoutMs 的流都会被拦腰砍断」—— Claude Code 看到的是
+   * "Streaming response ended before any complete data"，其实上游只是慢。
+   * 头一拿到就把定时器清掉；之后由 TCP keep-alive 和客户端自己的超时兜底。
+   */
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(new Error("upstream timeout")), cfg.upstreamTimeoutMs);
+  if (typeof timer.unref === "function") timer.unref();
+
   const init: RequestInit & { proxy?: string } = {
     method: opts.method ?? "POST",
     headers,
     redirect: "manual",
-    signal: AbortSignal.timeout(cfg.upstreamTimeoutMs)
+    signal: ac.signal
   };
   if (opts.body) init.body = opts.body;
   const px = proxyUrl(cfg);
   if (px) init.proxy = px;
 
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } finally {
+    /* 连不上也算，别把定时器留着 */
+    clearTimeout(timer);
+  }
 
   const out: IncomingHttpHeaders = {};
   res.headers.forEach((value, key) => {

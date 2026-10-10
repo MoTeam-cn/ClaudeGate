@@ -1,5 +1,13 @@
 import { callUpstream } from "../proxy.ts";
-import { pipeUpstream, collect, decodeStream, createUsageSniffer, passThroughHeaders } from "../upstream.ts";
+import {
+  pipeUpstream,
+  collect,
+  decodeStream,
+  createUsageSniffer,
+  passThroughHeaders,
+  StreamHeadError
+} from "../upstream.ts";
+import type { PipeResult } from "../upstream.ts";
 import { anthropicError } from "../http/respond.ts";
 import { readJson } from "../http/body.ts";
 import { requestIdOf, getTracker } from "../http/context.ts";
@@ -127,20 +135,73 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
 
     if (wantsStream) {
       const sniffer = createUsageSniffer();
+      const tap = (chunk: Buffer): void => {
+        sniffer.tap(chunk);
+        if (!tracker) return;
+        /* 每个分片同步抄一次：res 的 close 可能早于 await 之后，
+           收尾时再赋值就来不及落库了 */
+        const u = sniffer.usage();
+        tracker.promptTokens = u.promptTokens;
+        tracker.completionTokens = u.completionTokens;
+        tracker.cacheCreationTokens = u.cacheCreationTokens;
+        tracker.cacheReadTokens = u.cacheReadTokens;
+      };
+
       if (tracker) tracker.outcome = "ok";
-      /* 每个分片同步抄一次：res 的 close 可能早于 await 之后，
-         收尾时再赋值就来不及落库了 */
-      await pipeUpstream(res, up, {
-        tap: (chunk) => {
-          sniffer.tap(chunk);
-          if (!tracker) return;
-          const u = sniffer.usage();
-          tracker.promptTokens = u.promptTokens;
-          tracker.completionTokens = u.completionTokens;
-          tracker.cacheCreationTokens = u.cacheCreationTokens;
-          tracker.cacheReadTokens = u.cacheReadTokens;
+      const startedAt = Date.now();
+      let result: PipeResult;
+      try {
+        result = await pipeUpstream(res, up, { tap });
+      } catch (e) {
+        /*
+         * 只有一种情况会走到这里：上游在首字节之前就断了（StreamHeadError）。
+         * 此时响应头一个字节都没发出去，客户端还以为请求在路上 ——
+         * 换一次号重来它完全察觉不到。代理抽风唯一能被吃掉的地方就在这儿。
+         */
+        const msg = e instanceof Error ? e.message : String(e);
+        const canRetry = e instanceof StreamHeadError && !res.headersSent;
+        log.warn(
+          "[" + (requestIdOf(res) ?? "-") + "] 流式响应在首字节前中断：" + msg + (canRetry ? "，换号重试一次" : "")
+        );
+        if (!canRetry) throw e;
+        const retry = await callUpstream(ctx, req, auth, withBeta(url.pathname, url.search), body, {
+          stream: wantsStream,
+          sessionKey: sessionKeyOf(req, auth)
+        });
+        if (isUpstreamError(retry) || retry.status >= 400) throw e;
+        up = retry;
+        if (tracker) noteUpstream(ctx, tracker, up);
+        try {
+          result = await pipeUpstream(res, up, { tap });
+        } catch (e2) {
+          /* 重试还是首字节前就断 —— 代理/落地这一跳确实不通。
+             给一个 5xx：Claude Code 把 5xx 当可重试，会按退避重来，
+             而不会掉进「200 却一个事件都没有」那条更糟的路。 */
+          const msg2 = e2 instanceof Error ? e2.message : String(e2);
+          if (tracker) {
+            tracker.outcome = "error";
+            tracker.errorMessage = msg2;
+          }
+          log.warn("[" + (requestIdOf(res) ?? "-") + "] 重试后仍在首字节前中断：" + msg2);
+          anthropicError(res, 502, "upstream stream failed before the first byte: " + msg2, "api_error", "stream_head_failed");
+          return;
         }
-      });
+      }
+
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      if (result.aborted) {
+        /* 流被中途打断。运行日志里必须看得见 ——
+           否则用户只知道「断了」，不知道断在哪个环节、断了多久之后 */
+        if (tracker) tracker.errorMessage = "stream aborted: " + (result.error ?? "unknown");
+        log.warn(
+          "[" + (requestIdOf(res) ?? "-") + "] 流式响应中断：" +
+            result.bytes + " 字节 / " + seconds + " 秒 · " + (result.error ?? "unknown")
+        );
+      } else {
+        log.debug?.(
+          "[" + (requestIdOf(res) ?? "-") + "] 流式响应完成：" + result.bytes + " 字节 / " + seconds + " 秒"
+        );
+      }
       return;
     }
 
