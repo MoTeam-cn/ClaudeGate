@@ -83,6 +83,15 @@ export async function fetchUpstream(cfg: Config, opts: UpstreamCallOptions): Pro
   const cookies = (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.();
   if (cookies && cookies.length > 0) out["set-cookie"] = cookies;
 
+  /*
+   * 关键：fetch 已经把 body 解压过了，但 content-encoding 头还留着。
+   * 原样透传的话，下游的 decodeStream 会拿着已解压的数据再解一次 gzip ——
+   * 直接 "incorrect header check"，整个请求 500。上游返回 200 且带压缩时全挂。
+   * content-length 同理：解压后长度对不上了。
+   */
+  delete out["content-encoding"];
+  delete out["content-length"];
+
   const body = res.body
     ? Readable.fromWeb(res.body as unknown as import("node:stream/web").ReadableStream)
     : Readable.from([]);
