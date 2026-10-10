@@ -64,10 +64,10 @@ let usagePayload: unknown = {
   subscription_type: "max",
   rate_limits_available: true,
   rate_limits: {
-    five_hour: { utilization: 0.42, resets_at: Math.floor(Date.now() / 1000) + 3600 },
-    seven_day: { utilization: 0.13, resets_at: Math.floor(Date.now() / 1000) + 86400 }
+    five_hour: { utilization: 42, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+    seven_day: { utilization: 13, resets_at: Math.floor(Date.now() / 1000) + 86400 }
   },
-  limits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 0.42 }]
+  limits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 42 }]
 };
 
 const upstream = http.createServer((req, res) => {
@@ -194,8 +194,8 @@ console.log("\n=== C. 窗口 rejected 时封印账号 ===");
   usagePayload = {
     subscription_type: "max",
     rate_limits_available: true,
-    rate_limits: { five_hour: { utilization: 1, resets_at: resetAt } },
-    limits: [{ status: "rejected", rateLimitType: "five_hour", utilization: 1, resetsAt: resetAt }]
+    rate_limits: { five_hour: { utilization: 100, resets_at: resetAt } },
+    limits: [{ status: "rejected", rateLimitType: "five_hour", utilization: 100, resetsAt: resetAt }]
   };
   const gw = boot();
   const port = await startGw(gw);
@@ -256,9 +256,12 @@ console.log("\n=== F. profile 拿不到时不能挡住建号 ===");
 
 console.log("\n=== G. limits[] 新形状（percent 是 0-100）===");
 {
-  /* 字段名是 percent —— 二进制里的 schema 原文引用：
-       "Share of the window used, 0-100."
-     老形状 rate_limits.<name>.utilization 才是 0-1 的小数。单位由字段名决定。 */
+  /* 响应体里的百分比字段一律 0-100 —— 二进制里的 schema 原文引用：
+       utilization: ...describe("Percentage of the window used, 0-100.")
+       percent:     ...describe("Share of the window used, 0-100.")
+     以及官方 /usage 对话框的渲染原文引用：
+       i.push(`${r}: ${Math.floor(l.utilization)}% used${u}`)
+     0-1 的只有响应头那一套 anthropic-ratelimit-unified-*-utilization。 */
   usagePayload = {
     subscription_type: "pro",
     rate_limits_available: true,
@@ -298,10 +301,10 @@ console.log("\n=== H. 用量响应没有任何可识别字段要报错，不能�
     subscription_type: "max",
     rate_limits_available: true,
     rate_limits: {
-      five_hour: { utilization: 0.42, resets_at: Math.floor(Date.now() / 1000) + 3600 },
-      seven_day: { utilization: 0.13, resets_at: Math.floor(Date.now() / 1000) + 86400 }
+      five_hour: { utilization: 42, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+      seven_day: { utilization: 13, resets_at: Math.floor(Date.now() / 1000) + 86400 }
     },
-    limits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 0.42 }]
+    limits: [{ status: "allowed", rateLimitType: "five_hour", utilization: 42 }]
   };
 }
 

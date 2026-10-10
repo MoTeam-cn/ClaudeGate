@@ -37,27 +37,60 @@ function stat(k, v, cls){
 function tag(text, type){
   return h("span",{class:"el-tag el-tag--"+(type||"info")},[ h("span",{class:"dot"}), h("span",{text:String(text)}) ]);
 }
-function progress(w){
-  var p = (w && w.utilization!==null && w.utilization!==undefined) ? Math.round(w.utilization*1000)/10 : null;
-  if(p===null) return h("span",{class:"muted tiny",text:"无数据"});
-  var cls = w.status==="rejected" ? "is-danger" : (p>=90?"is-danger":(p>=70?"is-warning":"is-success"));
-  var bar = h("div",{class:"el-progress__bar"});
-  bar.appendChild(h("div",{class:"el-progress__inner "+cls,style:{width:Math.max(0,Math.min(100,p))+"%"}}));
-  var reset = w.resetsAt ? h("span",{text:" · "+CG.fmtTime(w.resetsAt*1000)}) : null;
-  return h("div",{class:"el-progress"},[
-    h("div",{class:"el-progress__head"},[ h("span",{text:p+"%"}), reset ]),
-    bar
-  ]);
+/**
+ * 一行计量条：名字 · 百分比 · 重置时间，下面一条细进度条。
+ *
+ * 原先名字和百分比分成两行、进度条再占一行，一个窗口就三行高；
+ * 号池里两个窗口叠起来，整行被撑得很高、左右还不对齐。现在压成两行、列对齐。
+ */
+/** 计量条里的重置时间要短。CG.fmtTime 给的是完整年月日时分秒，列里太占地方 */
+function shortTime(sec){
+  var d = new Date(sec*1000);
+  function p(n){ return (n<10?"0":"")+n; }
+  return p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());
+}
+function usageRow(name, w, active){
+  var pct = (w && w.utilization!==null && w.utilization!==undefined)
+    ? Math.round(w.utilization*1000)/10
+    : null;
+  var row = h("div",{class:"cg-meter"});
+  var head = h("div",{class:"cg-meter__head"});
+  var nm = h("span",{class:"cg-meter__name",text:name});
+  head.appendChild(nm);
+  if(active) head.appendChild(h("span",{class:"cg-meter__now",text:"当前"}));
+  head.appendChild(h("span",{class:"cg-meter__pct"+(pct===null?" is-empty":""),text:pct===null?"—":pct+"%"}));
+  if(w && w.resetsAt) head.appendChild(h("span",{class:"cg-meter__reset",title:CG.fmtTime(w.resetsAt*1000),text:shortTime(w.resetsAt)}));
+  row.appendChild(head);
+  var bar = h("div",{class:"cg-meter__bar"});
+  if(pct!==null){
+    var cls = w.status==="rejected" ? "is-danger" : (pct>=90?"is-danger":(pct>=70?"is-warning":"is-success"));
+    bar.appendChild(h("div",{class:"cg-meter__inner "+cls,style:{width:Math.max(0,Math.min(100,pct))+"%"}}));
+  }
+  row.appendChild(bar);
+  return row;
 }
 /* 额度窗口的展示名与排序。usageCell 与「加号后自动查额度」的提示共用一份 */
 var WINDOW_LABELS = {
+  /* 老形状（rate_limits.<name>） */
   five_hour:"5 小时", seven_day:"7 天", seven_day_opus:"7 天 Opus",
   seven_day_sonnet:"7 天 Sonnet", seven_day_overage_included:"7 天含溢出",
-  seven_day_oauth_apps:"7 天 OAuth 应用", overage:"溢出额度"
+  seven_day_oauth_apps:"7 天 OAuth 应用", overage:"溢出额度",
+  /* 新形状（limits[].kind）。二进制里原文引用：
+       "The server\u0027s meter kind, e.g. \u0027session\u0027, \u0027weekly_all\u0027 or \u0027weekly_scoped\u0027"
+     之前漏了这三个，面板上直接显示英文原名。 */
+  session:"5 小时", weekly_all:"每周总额", weekly_scoped:"每周（分模型）"
 };
-var WINDOW_ORDER = ["five_hour","seven_day","seven_day_opus","seven_day_sonnet",
+var WINDOW_ORDER = ["session","weekly_all","weekly_scoped","five_hour","seven_day","seven_day_opus","seven_day_sonnet",
   "seven_day_overage_included","seven_day_oauth_apps","overage"];
-function windowLabel(k){ return WINDOW_LABELS[k] || (k.indexOf("dim:")===0 ? k.slice(4) : k); }
+var DIM_LABELS = { requests:"请求数", tokens:"令牌数", "input-tokens":"输入令牌", "output-tokens":"输出令牌" };
+function windowLabel(k){
+  if(WINDOW_LABELS[k]) return WINDOW_LABELS[k];
+  if(k.indexOf("dim:")===0){
+    var d = k.slice(4);
+    return DIM_LABELS[d] || d;
+  }
+  return k;
+}
 function sortWindows(keys){
   return keys.slice().sort(function(x,y){
     var ix=WINDOW_ORDER.indexOf(x), iy=WINDOW_ORDER.indexOf(y);
@@ -86,19 +119,13 @@ function usageCell(a){
     var msg = u.error ? "查询失败" : (u.source==="headers" ? "等待响应头" : "无数据");
     return h("span",{class:"muted tiny",text:msg});
   }
-  var box = h("div",{class:"cg-stack",style:{gap:"6px"}});
+  var box = h("div",{class:"cg-usage"});
   /* 原始响应挂在单元格上：窗口认出来了却没数字时，只有原文能说清为什么 */
   if(u.raw) box.title = u.raw;
   sortWindows(keys).forEach(function(k){
     var w = u.windows[k]||{};
-    /* 标题行：窗口名（+ scoped 行的标签），服务端挑的头条行加个「当前」 */
-    var title = windowLabel(k) + (w.scopeLabel ? " · " + w.scopeLabel : "");
-    var head = h("div",{class:"tiny muted",style:{display:"flex",gap:"6px",alignItems:"center"}});
-    head.appendChild(h("span",{text:title}));
-    if(w.isActive){
-      head.appendChild(h("span",{class:"el-tag el-tag--success el-tag--small",style:{transform:"scale(.85)",transformOrigin:"left center"},text:"当前"}));
-    }
-    box.appendChild(h("div",{},[ head, progress(w) ]));
+    var name = windowLabel(k) + (w.scopeLabel ? " · " + w.scopeLabel : "");
+    box.appendChild(usageRow(name, w, !!w.isActive));
   });
   return box;
 }
@@ -208,48 +235,67 @@ function renderAccounts(box){
   CG.onRefresh(function(){
     return CG.api("accounts").then(function(list){
       CG.clear(host);
+      /*
+       * 列布局的原则：
+       *   · 一行里的信息分主次（.cg-cell__main / __sub），不再用内联 style 拼小字
+       *   · 数字列右对齐（align:"right"），位数对齐才好扫
+       *   · 操作列只留两个常用按钮，其余进「⋯」菜单 —— 六个按钮并排必然折行
+       */
       var cols = [
         { key:"label", label:"账号", sortable:true,
-          filter:{type:"text",placeholder:"搜账号"},
+          filter:{type:"text",placeholder:"搜账号 / 邮箱"},
           filterValue:function(a){ return a.label + " " + (a.email||"") + " " + a.kind; },
           render:function(a){
-            var box2 = h("div",{class:"cg-stack",style:{gap:"3px"}});
+            var cell = h("div",{class:"cg-cell"});
             /* 就地改名：点一下变输入框，Enter 或失焦保存 */
-            box2.appendChild(h("div",{},[
+            cell.appendChild(h("div",{class:"cg-cell__main"},[
               CG.inlineEdit(a.label, function(next){ return actRenameAccount(a.id, next); }, {title:"点击改备注名"})
             ]));
-            box2.appendChild(h("div",{class:"tiny muted",text:(a.kind==="oauth"?"订阅 OAuth":"Console Key")+(a.email?" · "+a.email:"")}));
-            if(a.lastError) box2.appendChild(h("div",{class:"tiny",style:{color:"var(--el-color-danger)"},text:a.lastError.slice(0,80)}));
-            return box2;
+            cell.appendChild(h("div",{class:"cg-cell__sub",text:(a.kind==="oauth"?"订阅 OAuth":"Console Key")+(a.email?" · "+a.email:"")}));
+            if(a.lastError) cell.appendChild(h("div",{class:"cg-cell__bad",title:a.lastError,text:a.lastError.slice(0,60)}));
+            return cell;
           } },
         { key:"status", label:"状态", sortable:true,
           filter:{type:"select",placeholder:"全部",options:["可用","冷却中","额度耗尽","已停用","出错"].map(function(s){ return {value:s,label:s}; })},
           filterValue:statusKey,
           render:function(a){
-            var box2 = h("div",{class:"cg-stack",style:{gap:"4px"}});
-            box2.appendChild(statusTag(a));
-            if(a.exhaustedUntil) box2.appendChild(h("div",{class:"tiny muted",text:"恢复 "+CG.fmtTime(a.exhaustedUntil*1000)}));
-            if(a.cooldownUntil && a.cooldownUntil*1000>Date.now()) box2.appendChild(h("div",{class:"tiny muted",text:"冷却至 "+CG.fmtTime(a.cooldownUntil*1000)}));
-            return box2;
+            var cell = h("div",{class:"cg-cell"});
+            cell.appendChild(statusTag(a));
+            var sub = [];
+            if(a.exhaustedUntil) sub.push("恢复 "+CG.fmtTime(a.exhaustedUntil*1000));
+            if(a.cooldownUntil && a.cooldownUntil*1000>Date.now()) sub.push("冷却至 "+CG.fmtTime(a.cooldownUntil*1000));
+            if(sub.length) cell.appendChild(h("div",{class:"cg-cell__sub",text:sub.join(" · ")}));
+            return cell;
           } },
-        { key:"usage", label:"用量", render:function(a){ return usageCell(a); } },
-        { key:"requestCount", label:"请求", sortable:true, render:function(a){ return CG.fmtNum(a.requestCount); } },
-        { key:"errorCount", label:"错误", sortable:true, render:function(a){ return CG.fmtNum(a.errorCount); } },
+        { key:"usage", label:"用量", width:"236px", render:function(a){ return usageCell(a); } },
+        { key:"requestCount", label:"请求", sortable:true, align:"right", width:"76px",
+          render:function(a){ return h("span",{class:"cg-num",text:CG.fmtNum(a.requestCount)}); } },
+        { key:"errorCount", label:"错误", sortable:true, align:"right", width:"68px",
+          render:function(a){
+            var n = a.errorCount || 0;
+            return h("span",{class:"cg-num",style:n?{color:"var(--el-color-danger)"}:null,text:CG.fmtNum(n)});
+          } },
         { key:"deviceId", label:"设备指纹", filter:{type:"text",placeholder:"搜指纹"},
           filterValue:function(a){ return a.deviceId || ""; },
           render:function(a){
-            return a.deviceId
-              ? h("span",{class:"mono tiny",title:a.deviceId,text:a.deviceId.slice(0,10)+"…"})
-              : h("span",{class:"muted tiny",text:"待生成"});
+            if(!a.deviceId) return h("span",{class:"muted tiny",text:"待生成"});
+            return h("span",{class:"cg-mono-chip",title:a.deviceId+"（点击复制）",text:a.deviceId.slice(0,10)+"…",
+              onclick:function(){
+                var ok = copyText(a.deviceId);
+                CG.toast(ok ? "指纹已复制" : "复制失败，请手动选中复制", ok ? "success" : "warning");
+              }});
           } },
-        { key:"act", label:"操作", render:function(a){
+        { key:"act", label:"操作", align:"right", width:"152px", render:function(a){
             var box2 = h("div",{class:"cg-actions"});
-            box2.appendChild(h("button",{class:"el-button el-button--small",text:"刷新信息",onclick:function(){ actRefreshAccount(a.id); }}));
-            box2.appendChild(h("button",{class:"el-button el-button--small",text:"查用量",onclick:function(){ actFetchUsage(a.id); }}));
-            if(a.status==="exhausted"||a.status==="error") box2.appendChild(h("button",{class:"el-button el-button--small",text:"恢复",onclick:function(){ actRevive(a.id); }}));
-            box2.appendChild(h("button",{class:"el-button el-button--small",text:a.status==="disabled"?"启用":"停用",onclick:function(){ actSetStatus(a); }}));
-            box2.appendChild(h("button",{class:"el-button el-button--small",text:"重置",onclick:function(){ actReset(a.id); }}));
-            box2.appendChild(h("button",{class:"el-button el-button--small el-button--danger",text:"删除",onclick:function(){ actDeleteAccount(a); }}));
+            box2.appendChild(h("button",{class:"el-button el-button--small",title:"立刻查询这个号的额度",text:"用量",onclick:function(){ actFetchUsage(a.id); }}));
+            box2.appendChild(h("button",{class:"el-button el-button--small",title:"重新读取这个号的订阅信息（真名 / 邮箱 / 套餐）",text:"刷新",onclick:function(){ actRefreshAccount(a.id); }}));
+            box2.appendChild(CG.moreMenu([
+              { label:"恢复额度状态", title:"把这个号从耗尽 / 出错状态恢复", run:function(){ return actRevive(a.id); } },
+              { label:a.status==="disabled"?"启用":"停用", title:a.status==="disabled"?"重新启用这个号":"暂时停用这个号", run:function(){ return actSetStatus(a); } },
+              { divider:true },
+              { label:"重置计数与冷却", title:"清掉错误计数与冷却，额度状态重新统计", run:function(){ return actReset(a.id); } },
+              { label:"删除账号", danger:true, title:"从号池里删掉这个号", run:function(){ return actDeleteAccount(a); } }
+            ], {title:"更多操作"}));
             return box2;
           } }
       ];
@@ -526,13 +572,15 @@ function renderKeys(box){
       CG.clear(host);
       var cols = [
         { key:"name", label:"名称", sortable:true,
-          filter:{type:"text",placeholder:"搜名称"},
+          filter:{type:"text",placeholder:"搜名称 / 前缀"},
           filterValue:function(k){ return k.name + " " + k.keyPrefix; },
           render:function(k){
-            var b = h("div",{class:"cg-stack",style:{gap:"3px"}});
-            b.appendChild(CG.inlineEdit(k.name, function(next){ return actRenameKey(k.id, next); }, {title:"点击改名"}));
-            b.appendChild(h("div",{class:"mono tiny muted",text:k.keyPrefix+"…"}));
-            return b;
+            var cell = h("div",{class:"cg-cell"});
+            cell.appendChild(h("div",{class:"cg-cell__main"},[
+              CG.inlineEdit(k.name, function(next){ return actRenameKey(k.id, next); }, {title:"点击改名"})
+            ]));
+            cell.appendChild(h("div",{class:"cg-cell__sub mono",text:k.keyPrefix+"…"}));
+            return cell;
           } },
         { key:"enabled", label:"状态", sortable:true,
           filter:{type:"select",placeholder:"全部",options:[{value:"启用",label:"启用"},{value:"停用",label:"停用"}]},
@@ -541,15 +589,24 @@ function renderKeys(box){
         { key:"fingerprintMode", label:"指纹", sortable:true,
           filter:{type:"select",placeholder:"全部",options:[{value:"claude_code",label:"Claude Code"},{value:"passthrough",label:"透传"}]},
           render:function(k){ return tag(k.fingerprintMode==="claude_code"?"Claude Code":"透传", k.fingerprintMode==="claude_code"?"primary":"info"); } },
-        { key:"quotaEnabled", label:"配额", render:function(k){ return tag(k.quotaEnabled?"已启用":"未启用", k.quotaEnabled?"success":"info"); } },
-        { key:"usageToday", label:"今日", sortable:true, sortValue:function(k){ return k.usageToday.requests; },
-          render:function(k){ return CG.fmtNum(k.usageToday.requests)+" 次 / "+CG.fmtNum(k.usageToday.tokens)+" token"; } },
+        { key:"quotaEnabled", label:"配额", align:"center", render:function(k){ return tag(k.quotaEnabled?"已启用":"未启用", k.quotaEnabled?"success":"info"); } },
+        { key:"usageToday", label:"今日", sortable:true, align:"right", width:"158px", sortValue:function(k){ return k.usageToday.requests; },
+          render:function(k){
+            var cell = h("div",{class:"cg-cell cg-cell--right"});
+            cell.appendChild(h("div",{class:"cg-cell__main cg-num",text:CG.fmtNum(k.usageToday.requests)+" 次"}));
+            cell.appendChild(h("div",{class:"cg-cell__sub cg-num",text:CG.fmtNum(k.usageToday.tokens)+" token"}));
+            return cell;
+          } },
         { key:"createdAt", label:"创建", sortable:true, render:function(k){ return agoCell(k.createdAt*1000); } },
-        { key:"act", label:"操作", render:function(k){
+        /* 重置密钥原本只有函数没有入口 —— 密钥泄露了在面板上换不了，只能删了重建 */
+        { key:"act", label:"操作", align:"right", width:"168px", render:function(k){
             var b = h("div",{class:"cg-actions"});
-            b.appendChild(h("button",{class:"el-button el-button--small",text:k.enabled?"停用":"启用",onclick:function(){ actToggleKey(k); }}));
-            b.appendChild(h("button",{class:"el-button el-button--small",text:"改配额",onclick:function(){ openKeyQuota(k); }}));
-            b.appendChild(h("button",{class:"el-button el-button--small el-button--danger",text:"删除",onclick:function(){ actDeleteKey(k); }}));
+            b.appendChild(h("button",{class:"el-button el-button--small",title:k.enabled?"停用这把 Key":"启用这把 Key",text:k.enabled?"停用":"启用",onclick:function(){ actToggleKey(k); }}));
+            b.appendChild(h("button",{class:"el-button el-button--small",title:"设置每日请求 / token / 每分钟上限",text:"配额",onclick:function(){ openKeyQuota(k); }}));
+            b.appendChild(CG.moreMenu([
+              { label:"重置密钥", title:"换一把新密钥，旧密钥立刻失效，其余配置保留", run:function(){ return actResetKey(k); } },
+              { label:"删除 Key", danger:true, title:"删掉这把 Key，使用它的客户端会立刻失效", run:function(){ return actDeleteKey(k); } }
+            ]));
             return b;
           } }
       ];
@@ -694,29 +751,27 @@ function renderReqLogs(box){
     { value:"", label:"全部结果" }, { value:"ok", label:"成功" },
     { value:"blocked", label:"被拦截" }, { value:"error", label:"错误" }
   ], { value:reqState.outcome });
-  outcome.el.classList.add("cg-colfilter");
+  outcome.el.classList.add("cg-filterbar__control");
   var protocol = CG.selectBox([
     { value:"", label:"全部协议" }, { value:"anthropic", label:"anthropic" },
     { value:"openai", label:"openai" }
   ], { value:reqState.protocol });
-  protocol.el.classList.add("cg-colfilter");
-  var search = h("input",{class:"el-input__inner",placeholder:"req-id / 路径 / 模型 / 账号 / IP"});
+  protocol.el.classList.add("cg-filterbar__control");
+  /* 搜索框比列筛选宽 —— 它是跨列的服务端查询，不是某一列的筛选 */
+  var search = h("input",{class:"el-input__inner cg-filterbar__control",placeholder:"req-id / 路径 / 模型 / 账号 / IP"});
+  search.style.width = "280px"; search.style.minWidth = "280px";
   search.value = reqState.search;
   function apply(){ reqState.outcome=outcome.value; reqState.protocol=protocol.value; reqState.search=search.value; reqState.page=1; load(); }
   search.addEventListener("keydown", function(e){ if(e.key==="Enter") apply(); });
   outcome.addEventListener("change", apply);
   protocol.addEventListener("change", apply);
 
-  /* 结果与协议挂到对应列的表头下面当列筛选，顶部只留跨列的搜索 */
-  var filters = h("div",{class:"cg-filters"},[
-    h("div",{class:"el-form-item cg-grow"},[ h("div",{class:"el-form-item__label",text:"搜索"}), search ]),
-    h("button",{class:"el-button el-button--primary",text:"查询",onclick:apply}),
-    h("button",{class:"el-button",text:"重置",onclick:function(){ outcome.value=""; protocol.value=""; search.value=""; apply(); }})
-  ]);
-
+  /* 搜索、结果、协议全是服务端筛选，统一交给表格的筛选栏渲染。
+     以前这三个控件在表格外面另起一块 .cg-filters，列筛选又是表头下面另一排，
+     同一页两套长得不一样的筛选控件。 */
   var listHost = h("div");
   var pageHost = h("div");
-  var cardEl = card("请求日志", h("div",{},[filters, listHost, pageHost]));
+  var cardEl = card("请求日志", h("div",{},[listHost, pageHost]));
   host.appendChild(cardEl);
 
   function load(){
@@ -744,13 +799,13 @@ function renderReqLogs(box){
         { key:"id", label:"req-id", render:function(r){ return h("span",{class:"mono tiny",text:r.id||"-"}); } },
         { key:"clientIp", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.clientIp||"-"}); } },
         { key:"apiKeyName", label:"Key", render:function(r){ return r.apiKeyName||"-"; } },
-        { key:"protocol", label:"协议", sortable:true, filter:{type:"slot", el:protocol.el} },
+        { key:"protocol", label:"协议", sortable:true, width:"88px" },
         { key:"path", label:"路径", render:function(r){
             return h("span",{class:"mono tiny",text:((r.method||"")+" "+(r.path||"")).trim()||"-"});
           } },
         { key:"model", label:"模型", render:function(r){ return h("span",{class:"mono tiny",text:r.model||"-"}); } },
         { key:"accountLabel", label:"账号", render:function(r){ return r.accountLabel||"-"; } },
-        { key:"status", label:"状态", sortable:true, filter:{type:"slot", el:outcome.el}, render:function(r){
+        { key:"status", label:"状态", sortable:true, width:"96px", render:function(r){
             if(r.outcome==="blocked") return tag(r.blockReason||"拦截","danger");
             /* status 为 null 说明这个请求没到上游（比如 /v1/models 是本地出的） */
             if(r.status===null||r.status===undefined){
@@ -758,9 +813,11 @@ function renderReqLogs(box){
             }
             return tag(String(r.status), r.status>=400?"warning":"success");
           } },
-        { key:"durationMs", label:"耗时", sortable:true, render:function(r){ return CG.fmtDur(r.durationMs); } },
-        { key:"tokens", label:"token", render:function(r){
-            return h("span",{class:"tiny",text:CG.fmtNum(r.promptTokens)+" / "+CG.fmtNum(r.completionTokens)+" / "+CG.fmtNum(r.cacheReadTokens)});
+        { key:"durationMs", label:"耗时", sortable:true, align:"right", width:"88px",
+          render:function(r){ return h("span",{class:"cg-num",text:CG.fmtDur(r.durationMs)}); } },
+        { key:"tokens", label:"token", align:"right", width:"150px", render:function(r){
+            return h("span",{class:"tiny cg-num",title:"输入 / 输出 / 缓存读",
+              text:CG.fmtNum(r.promptTokens)+" / "+CG.fmtNum(r.completionTokens)+" / "+CG.fmtNum(r.cacheReadTokens)});
           } },
         { key:"note", label:"说明", clamp:true, render:function(r){
             var t = r.errorMessage || r.blockDetail || r.blockReason || "";
@@ -768,7 +825,16 @@ function renderReqLogs(box){
           } }
       ];
       listHost.appendChild(CG.table(cols, rows, {
-        sortKey:"ts", sortDir:"desc", emptyText:"没有符合条件的请求",
+        sortKey:"ts", sortDir:"desc", dense:true, emptyText:"没有符合条件的请求",
+        toolbar:[
+          { label:"搜索", el:search },
+          { label:"结果", el:outcome.el },
+          { label:"协议", el:protocol.el }
+        ],
+        toolbarActions:[
+          h("button",{class:"el-button el-button--small el-button--primary",text:"查询",onclick:apply}),
+          h("button",{class:"el-button el-button--small",text:"重置",onclick:function(){ outcome.value=""; protocol.value=""; search.value=""; apply(); }})
+        ],
         rowClass:function(r){ return r.outcome==="blocked" ? "row-danger" : (r.status>=400 ? "row-warn" : ""); }
       }));
       CG.clear(pageHost);
@@ -789,27 +855,23 @@ function renderRtLogs(box){
     { value:"", label:"全部级别" }, { value:"debug", label:"debug" },
     { value:"info", label:"info" }, { value:"warn", label:"warn" }, { value:"error", label:"error" }
   ], { value:rtState.level });
-  level.el.classList.add("cg-colfilter");
-  var search = h("input",{class:"el-input__inner",placeholder:"搜索日志内容"});
+  level.el.classList.add("cg-filterbar__control");
+  var search = h("input",{class:"el-input__inner cg-filterbar__control",placeholder:"搜索日志内容"});
+  search.style.width = "280px"; search.style.minWidth = "280px";
   search.value = rtState.search;
   function apply(){ rtState.level=level.value; rtState.search=search.value; rtState.page=1; load(); }
   search.addEventListener("keydown", function(e){ if(e.key==="Enter") apply(); });
   level.addEventListener("change", apply);
 
+  function prune(){
+    CG.dialog({ title:"清空运行日志", okText:"清空",
+      body:h("div",{text:"会按保留策略删除旧日志，确定继续？"}),
+      onOk:function(){ return CG.api("logs.prune",{}).then(function(r){ CG.toast("已按保留 "+(r.days||"?")+" 天清理，运行日志上限 "+(r.maxRows||"?"),"success"); load(); }); } });
+  }
+
   var listHost = h("div");
   var pageHost = h("div");
-  host.appendChild(card("运行日志", h("div",{},[
-    h("div",{class:"cg-filters"},[
-      h("div",{class:"el-form-item cg-grow"},[ h("div",{class:"el-form-item__label",text:"搜索"}), search ]),
-      h("button",{class:"el-button el-button--primary",text:"查询",onclick:apply}),
-      h("button",{class:"el-button",text:"清空历史",onclick:function(){
-        CG.dialog({ title:"清空运行日志", okText:"清空",
-          body:h("div",{text:"会按保留策略删除旧日志，确定继续？"}),
-          onOk:function(){ return CG.api("logs.prune",{}).then(function(r){ CG.toast("已按保留 "+(r.days||"?")+" 天清理，运行日志上限 "+(r.maxRows||"?"),"success"); load(); }); } });
-      }})
-    ]),
-    listHost, pageHost
-  ])));
+  host.appendChild(card("运行日志", h("div",{},[listHost, pageHost])));
 
   function load(){
     CG.clear(listHost);
@@ -821,14 +883,21 @@ function renderRtLogs(box){
       CG.clear(listHost);
       var cols = [
         { key:"ts", label:"时间", sortable:true, render:function(r){ return CG.fmtTime(r.ts); } },
-        { key:"level", label:"级别", sortable:true, filter:{type:"slot", el:level.el}, render:function(r){
+        { key:"level", label:"级别", sortable:true, width:"88px", render:function(r){
             var t = r.level==="error"?"danger":(r.level==="warn"?"warning":(r.level==="debug"?"info":"success"));
             return tag(r.level,t);
           } },
         { key:"scope", label:"来源", render:function(r){ return h("span",{class:"mono tiny",text:r.scope||"-"}); } },
-        { key:"message", label:"内容", wrap:true, render:function(r){ return h("span",{class:"tiny",text:r.message||""}); } }
+        { key:"message", label:"内容", clamp:true, render:function(r){ return h("span",{class:"tiny",text:r.message||""}); } }
       ];
-      listHost.appendChild(CG.table(cols, d.rows||[], { sortKey:"ts", sortDir:"desc", emptyText:"暂无日志" }));
+      listHost.appendChild(CG.table(cols, d.rows||[], {
+        sortKey:"ts", sortDir:"desc", dense:true, emptyText:"暂无日志",
+        toolbar:[ { label:"搜索", el:search }, { label:"级别", el:level.el } ],
+        toolbarActions:[
+          h("button",{class:"el-button el-button--small el-button--primary",text:"查询",onclick:apply}),
+          h("button",{class:"el-button el-button--small",text:"清空历史",onclick:prune})
+        ]
+      }));
       CG.clear(pageHost);
       pageHost.appendChild(CG.pager({ total:d.total||0, page:rtState.page, size:rtState.size, onChange:function(p){ rtState.page=p; load(); } }));
       return d;

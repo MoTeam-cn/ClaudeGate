@@ -317,9 +317,70 @@ function inlineEdit(value, onSave, opt){
   return span;
 }
 
+/* ============ 「更多」下拉 ============ */
+/**
+ * 一排按钮塞不下时的收纳。
+ *
+ * 号池那一行原先并排六个按钮，列宽怎么调都会折成两行 —— 长标签、短标签都试过了。
+ * 现在低频且危险的操作收进这里，主行只留两个常用的。
+ *
+ * items: [{label,title,danger,divider,run}]
+ */
+function moreMenu(items, opt){
+  opt = opt || {};
+  var root = h("div",{class:"cg-more"});
+  var btn = h("button",{class:"el-button el-button--small cg-more__btn",type:"button",title:opt.title||"更多操作"});
+  btn.appendChild(h("span",{class:"cg-more__dots",text:"\u22ef"}));
+  root.appendChild(btn);
+  var drop = null, open = false;
+
+  function close(){
+    if(!open) return;
+    open = false;
+    root.classList.remove("is-open");
+    document.removeEventListener("mousedown", onDoc, true);
+    window.removeEventListener("scroll", close, true);
+    window.removeEventListener("resize", close);
+    if(drop && drop.parentNode) drop.parentNode.removeChild(drop);
+    drop = null;
+  }
+  function onDoc(e){ if(!root.contains(e.target) && drop && !drop.contains(e.target)) close(); }
+  function openDrop(){
+    if(open) return;
+    open = true;
+    drop = h("div",{class:"el-dropdown-menu cg-more__drop"});
+    (items||[]).forEach(function(it){
+      if(it.divider){ drop.appendChild(h("div",{class:"cg-more__sep"})); return; }
+      var row = h("div",{class:"el-dropdown-menu__item"+(it.danger?" is-danger":""),text:it.label});
+      if(it.title) row.title = it.title;
+      row.addEventListener("click", function(e){
+        e.stopPropagation();
+        close();
+        try { Promise.resolve(it.run()).catch(showErr); } catch(err){ showErr(err); }
+      });
+      drop.appendChild(row);
+    });
+    document.body.appendChild(drop);
+    var r = btn.getBoundingClientRect();
+    drop.style.position = "fixed";
+    drop.style.minWidth = Math.max(140, r.width) + "px";
+    var w = drop.offsetWidth, hh = drop.offsetHeight;
+    drop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    drop.style.top = (window.innerHeight - r.bottom < hh + 8 && r.top > hh + 8)
+      ? Math.max(8, r.top - hh - 4) + "px"
+      : (r.bottom + 4) + "px";
+    root.classList.add("is-open");
+    document.addEventListener("mousedown", onDoc, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+  }
+  btn.addEventListener("click", function(e){ e.stopPropagation(); if(open) close(); else openDrop(); });
+  return root;
+}
+
 /* ============ 表格 ============ */
 /**
- * columns: [{key,label,sortable,render(row),filter,filterValue,wrap,clamp,width}]
+ * columns: [{key,label,sortable,render(row),filter,filterValue,wrap,clamp,width,align}]
  * filter:  {type:"text"} | {type:"select",options:[...]} | {type:"slot",el:元素}
  * opt:     {sortKey,sortDir,striped,emptyText,rowClass,rowId,selectable,batchActions}
  *
@@ -502,18 +563,100 @@ function table(columns, rows, opt){
   }
   function selectedIds(){ return Object.keys(selected).filter(function(k){ return selected[k]; }); }
 
-  var wrap = h("div",{class:"el-table-wrap"});
+  var wrap = h("div",{class:"el-table-wrap"+(opt.maxHeight === false ? " is-free" : "")});
+  /*
+   * 筛选栏。
+   *
+   * 一条栏里放两种东西，视觉完全一致：
+   *   · opt.toolbar —— 页面自己给的控件（服务端筛选：搜索框、下拉），带标签
+   *   · columns[].filter —— 列自带的客户端筛选
+   * 以前列筛选在表头下面另起一行、没有列宽约束，和表头各排各的；页面自己的
+   * 筛选又另起一块 .cg-filters，同一页会出现两排长得不一样的筛选控件。
+   * 现在合成一条，右侧统一放「已筛 N 项 / 清除筛选」。
+   */
+  var filterbar = h("div",{class:"cg-filterbar hidden"});
+  var filterResets = [];
+  var hasColFilters = columns.some(function(c){ return !!c.filter; });
+
+  function buildFilterBar(){
+    var items = [];
+    (opt.toolbar || []).forEach(function(t){ if(t) items.push({ label:t.label, node:t.el }); });
+    columns.forEach(function(c){ if(c.filter) items.push({ col:c }); });
+    if(!items.length) return;
+    filterbar.className = "cg-filterbar";
+    filterResets = [];
+
+    items.forEach(function(it){
+      var item = h("div",{class:"cg-filterbar__item"});
+      if(it.node){
+        if(it.label) item.appendChild(h("span",{class:"cg-filterbar__label",text:it.label}));
+        item.appendChild(it.node);
+        filterbar.appendChild(item);
+        return;
+      }
+      var c = it.col;
+      item.appendChild(h("span",{class:"cg-filterbar__label",text:c.label}));
+      if(c.filter.type === "slot"){
+        item.appendChild(c.filter.el);
+      } else if(c.filter.type === "select"){
+        var opts = [{ value:"", label:c.filter.placeholder||"全部" }].concat(c.filter.options||[]);
+        var sel = selectBox(opts, { value:filters[c.key] || "" });
+        sel.el.classList.add("cg-filterbar__control");
+        sel.addEventListener("change", function(){ filters[c.key] = sel.value; syncFilterState(); paint(); });
+        item.appendChild(sel.el);
+        filterResets.push(function(){ sel.value = ""; });
+      } else {
+        /* 文本筛选带一个清除叉：不用把框里的字全删掉再点别处 */
+        var field = h("div",{class:"cg-filterbar__field"});
+        var inp = h("input",{class:"el-input__inner cg-filterbar__control",placeholder:c.filter.placeholder||"筛选"});
+        inp.value = filters[c.key] || "";
+        var clr = h("button",{class:"cg-filterbar__clear",type:"button",title:"清除「"+c.label+"」的筛选",text:"\u2715"});
+        function syncClr(){ field.classList.toggle("has-value", !!inp.value); }
+        inp.addEventListener("input", function(){ filters[c.key] = inp.value; syncClr(); syncFilterState(); repaintRows(); });
+        clr.addEventListener("click", function(){ inp.value = ""; delete filters[c.key]; syncClr(); syncFilterState(); repaintRows(); });
+        syncClr();
+        field.appendChild(inp); field.appendChild(clr);
+        item.appendChild(field);
+        filterResets.push(function(){ inp.value = ""; delete filters[c.key]; syncClr(); });
+      }
+      filterbar.appendChild(item);
+    });
+
+    var tail = h("div",{class:"cg-filterbar__tail"});
+    (opt.toolbarActions || []).forEach(function(b){ tail.appendChild(b); });
+    if(hasColFilters){
+      tail.appendChild(h("span",{class:"cg-filterbar__count",text:""}));
+      tail.appendChild(h("button",{
+        class:"el-button el-button--small el-button--text",
+        text:"清除筛选",
+        onclick:function(){
+          filters = {};
+          filterResets.forEach(function(fn){ fn(); });
+          syncFilterState();
+          paint();
+        }
+      }));
+    }
+    filterbar.appendChild(tail);
+    syncFilterState();
+  }
+
+  /** 显示「已筛 N 项」，没筛就藏起来 */
+  function syncFilterState(){
+    var n = Object.keys(filters).filter(function(k){ return !!filters[k]; }).length;
+    var box = filterbar.querySelector(".cg-filterbar__count");
+    if(box) box.textContent = n ? "已筛 " + n + " 项" : "";
+    filterbar.classList.toggle("is-active", n > 0);
+  }
   /* 想给某张表单独定高就传 opt.maxHeight，比如 opt.maxHeight = "40vh" */
   if(opt.maxHeight) wrap.style.maxHeight = opt.maxHeight;
   var bar = h("div",{class:"cg-batchbar hidden"});
-  var tbl = h("table",{class:"el-table"+(opt.striped===false?"":" el-table--striped")});
+  var tbl = h("table",{class:"el-table"+(opt.striped===false?"":" el-table--striped")+(opt.dense?" el-table--dense":"")});
 
   function paint(){
     clear(tbl);
     var thead = h("thead");
     var trh = h("tr");
-    var trf = h("tr",{class:"cg-filterrow"});
-    var hasFilter = false;
 
     if(opt.selectable){
       var th0 = h("th",{class:"cg-col-check"});
@@ -527,15 +670,17 @@ function table(columns, rows, opt){
       });
       th0.appendChild(master);
       trh.appendChild(th0);
-      trf.appendChild(h("td"));
-      hasFilter = true;
     }
 
     columns.forEach(function(c){
-      var th = h("th",{class:(c.sortable?"is-sortable":"") + (state.key===c.key?" is-sorted":"")});
-      th.appendChild(h("span",{text:c.label}));
+      var th = h("th",{class:(c.sortable?"is-sortable":"") + (state.key===c.key?" is-sorted":"") + (c.align?" is-"+c.align:"")});
+      var label = h("span",{class:"cg-th__label"});
+      label.appendChild(h("span",{text:c.label}));
       if(c.sortable){
-        th.appendChild(h("span",{class:"caret",text: state.key===c.key ? (state.dir==="asc"?"▲":"▼") : "⇅"}));
+        label.appendChild(h("span",{class:"caret",text: state.key===c.key ? (state.dir==="asc"?"▲":"▼") : "⇅"}));
+      }
+      th.appendChild(label);
+      if(c.sortable){
         th.addEventListener("click", function(){
           if(state.key === c.key) state.dir = state.dir === "asc" ? "desc" : "asc";
           else { state.key = c.key; state.dir = "desc"; }
@@ -544,31 +689,9 @@ function table(columns, rows, opt){
       }
       if(c.width) th.style.width = c.width;
       trh.appendChild(th);
-
-      /* 每一列都要补一个 td，哪怕没有筛选控件——否则筛选行会整体错位 */
-      var td = h("td");
-      if(c.filter){
-        hasFilter = true;
-        if(c.filter.type === "slot"){
-          td.appendChild(c.filter.el);
-        } else if(c.filter.type === "select"){
-          var opts = [{ value:"", label:c.filter.placeholder||"全部" }].concat(c.filter.options||[]);
-          var sel = selectBox(opts, { value:filters[c.key] || "" });
-          sel.el.classList.add("cg-colfilter");
-          sel.addEventListener("change", function(){ filters[c.key] = sel.value; paint(); });
-          td.appendChild(sel.el);
-        } else {
-          var inp = h("input",{class:"el-input__inner cg-colfilter",placeholder:c.filter.placeholder||"筛选"});
-          inp.value = filters[c.key] || "";
-          inp.addEventListener("input", function(){ filters[c.key] = inp.value; repaintRows(); });
-          td.appendChild(inp);
-        }
-      }
-      trf.appendChild(td);
     });
 
     thead.appendChild(trh);
-    if(hasFilter) thead.appendChild(trf);
     tbl.appendChild(thead);
     tbl.appendChild(body());
     paintBar();
@@ -609,7 +732,7 @@ function table(columns, rows, opt){
         tr.appendChild(tdc);
       }
       columns.forEach(function(c){
-        var td2 = h("td");
+        var td2 = h("td", c.align ? {class:"is-"+c.align} : null);
         var cell = h("div",{class:"cell" + (c.wrap?" wrap":"") + (c.clamp?" clamp":"")});
         var v = c.render ? c.render(row) : row[c.key];
         if(v && v.nodeType) cell.appendChild(v);
@@ -645,10 +768,12 @@ function table(columns, rows, opt){
     bar.appendChild(h("button",{class:"el-button el-button--small el-button--text",text:"取消选择",onclick:function(){ selected = {}; paint(); }}));
   }
 
+  buildFilterBar();
   paint();
   wrap.appendChild(tbl);
-  var host = h("div");
+  var host = h("div",{class:"cg-table-host"});
   host.appendChild(bar);
+  host.appendChild(filterbar);
   host.appendChild(wrap);
   host.repaint = paint;
   host.selectedIds = selectedIds;
@@ -750,6 +875,7 @@ window.CG = {
 window.CG.switchBox = switchBox;
 window.CG.selectBox = selectBox;
 window.CG.inlineEdit = inlineEdit;
+window.CG.moreMenu = moreMenu;
 window.CG.switchBox = switchBox;
 window.CG.clearRefreshers = clearRefreshers;
 window.CG.toggleTheme = toggleTheme;

@@ -169,7 +169,8 @@ node:sqlite 是同步 API，会阻塞事件循环。运行日志与 API Key 用�
 - **限流响应头**（只出现在订阅流量上）
   - anthropic-ratelimit-unified-status：allowed / allowed_warning / rejected
   - anthropic-ratelimit-unified-5h-reset、-7d-reset：unix 秒
-  - anthropic-ratelimit-unified-grace-5h-utilization、-7d-utilization
+  - anthropic-ratelimit-unified-5h-utilization、-7d-utilization（**0-1 的小数**，见下方「用量单位」）
+  - anthropic-ratelimit-unified-grace-5h-utilization、-7d-utilization（同样是 0-1，官方对这两个做 clamp(0,1)）
   - anthropic-ratelimit-unified-overage-disabled-reason：
     overage_not_provisioned / org_level_disabled / org_level_disabled_until / out_of_credits /
     seat_tier_level_disabled / member_level_disabled / seat_tier_zero_credit_limit /
@@ -231,3 +232,46 @@ rate_limits: { limits: [{ kind, group, percent, resets_at, scope, severity, is_a
 - `is_active` 是服务端挑的头条行，面板上标「当前」。
 - `kind` 是行名（`session` / `weekly_all` / `weekly_scoped`），`group` 是分组（`session` / `weekly`）。
 - 数组可能在顶层 `limits`，也可能嵌在 `rate_limits.limits` 下，两种都认。
+
+## 用量单位（2026-10-10 修正）
+
+同一个「用了多少」有三种字段，**单位不同**，混用会让面板上的百分比差 100 倍。
+三条证据都从 Claude Code 2.1.293 二进制里抠出来（原文引用）：
+
+1. 响应体 `rate_limits.<窗口>.utilization` 与 `limits[].percent` 都是 **0-100**。
+   Zod schema 的 describe 写得很直白：
+   ```
+   utilization: k().nullable().describe("Percentage of the window used, 0-100.")
+   percent:     k().describe("Share of the window used, 0-100.")
+   ```
+2. 官方 /usage 对话框直接把它当百分数打印：
+   ```
+   i.push(`${r}: ${Math.floor(l.utilization)}% used${u}`)
+   ```
+3. 响应头 `anthropic-ratelimit-unified-*-utilization` 是 **0-1 的小数**。
+   `unifiedWindows` 字段的 describe：
+   ```
+   utilization is the fraction of the window used (usually 0-1, same scale as the
+   top-level utilization field; values above 1 occur when usage legitimately runs
+   past a window's cap)
+   ```
+   客户端把它转成响应体形状时要乘 100（原文引用，`cun` 函数里）：
+   ```
+   let o=(s)=>s?{utilization:s.utilization*100, resets_at:new Date(s.resets_at*1000).toISOString()}:void 0
+   ```
+   渲染时也是先乘 100（原文引用）：
+   ```
+   used_percentage: UPt(ot.five_hour.utilization)   // UPt(e)=Math.round(e*1000)/10
+   ```
+   近限流提醒的阈值也印证了这一点：`thresholds:[{utilization:0.9,...}]`。
+
+### 落地规则
+
+- **响应体**里的 `percent`、`used_percent`、`percentUsed`、`percent_used`、裸 `utilization`
+  一律除以 100。单位由**字段名**决定，不看数值大小 ——
+  早先写成「超过 1.5 才除以 100」，`percent` 为 1（1%）会被当成 1.0 渲染成 100%。
+- **响应头**里的 `-5h-utilization` / `-7d-utilization` 原样使用，**不再除以 100**。
+  这条曾经写反了：凡是靠响应头取额度的账号（Console API Key、以及还没查过用量接口的订阅号）
+  都会少 100 倍。
+- 内部表示统一是 **0-1 的小数**，只在渲染时乘 100（`src/panel/views.ts` 的 `usageRow`）。
+- 面板的用量单元格会把上游原文挂在 `title` 上，对不上数时先看原文，别猜。

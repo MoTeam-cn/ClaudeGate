@@ -69,8 +69,13 @@ function utilizationOf(o: Record<string, unknown>, name: string): number | null 
     }
     if (best !== null) return best / 100;
   }
-  /* 老形状：本来就是 0-1 的小数，原样用 */
-  return numOrNull(o.utilization);
+  /* 裸 utilization 也按百分数读（0-100）。
+     官方 /usage 对话框就是这么渲染的（原文引用）：
+       i.push(`${r}: ${Math.floor(l.utilization)}% used${u}`)
+     它直接拿 utilization 当百分数用，所以响应体里凡是百分比字段都是 0-100。
+     0-1 的只有响应头那一套（见 windowsFromRateLimit）。 */
+  const util = numOrNull(o.utilization);
+  return util === null ? null : util / 100;
 }
 
 /** resets_at 可能是 unix 秒、unix 毫秒，或 ISO 字符串 */
@@ -107,8 +112,12 @@ export function normalizeOauthUsage(raw: unknown): UsageSnapshot {
       const w = rl[key];
       if (!w || typeof w !== "object" || Array.isArray(w)) continue;
       const o = w as Record<string, unknown>;
+      /* 老形状的 utilization 也是百分数。官方 schema 原文引用：
+           utilization: k().nullable().describe("Percentage of the window used, 0-100.")
+         所以同样要除以 100 —— 以前这里原样用，42 会渲染成 4200%。 */
+      const rawUtil = numOrNull(o.utilization);
       windows[key] = {
-        utilization: numOrNull(o.utilization),
+        utilization: rawUtil === null ? null : rawUtil / 100,
         resetsAt: resetOrNull(o.resets_at ?? o.resetsAt)
       };
     }
@@ -324,20 +333,26 @@ export function windowsFromRateLimit(rl: RateLimitObservation | null): Record<st
   const now = Math.floor(Date.now() / 1000);
 
   /*
-   * 响应头 anthropic-ratelimit-unified-5h-utilization 是 0-100（sgproxy 那边字段就叫
-   * utilization_pct）。一律除以 100，同样不看数值大小。
+   * 响应头 anthropic-ratelimit-unified-5h-utilization / -7d-utilization 是 **0-1 的小数**，
+   * 不是百分数。官方客户端自己写的（原文引用，unifiedWindows 字段的 describe）：
+   *   "utilization is the fraction of the window used (usually 0-1, same scale as the
+   *    top-level utilization field; values above 1 occur when usage legitimately runs
+   *    past a window's cap)"
+   * 它渲染时再乘 100（原文引用）：used_percentage: UPt(ot.five_hour.utilization)，
+   * 其中 UPt(e)=Math.round(e*1000)/10。
+   * 所以这里**原样用**。以前写成除以 100，凡走响应头这条路的账号都会少 100 倍。
    */
-  const pct = (v: number | null): number | null => (v === null ? null : v / 100);
+  const frac = (v: number | null): number | null => (v === null || !Number.isFinite(v) ? null : v);
   if (rl.fiveHourReset !== null || rl.fiveHourUtilization !== null) {
     out.five_hour = {
-      utilization: pct(rl.fiveHourUtilization),
+      utilization: frac(rl.fiveHourUtilization),
       resetsAt: rl.fiveHourReset,
       status: rl.unifiedStatus ?? undefined
     };
   }
   if (rl.sevenDayReset !== null || rl.sevenDayUtilization !== null) {
     out.seven_day = {
-      utilization: pct(rl.sevenDayUtilization),
+      utilization: frac(rl.sevenDayUtilization),
       resetsAt: rl.sevenDayReset,
       status: rl.unifiedStatus ?? undefined
     };

@@ -111,14 +111,14 @@ const usagePayload = {
   subscription_type: "max",
   rate_limits_available: true,
   rate_limits: {
-    five_hour: { utilization: 0.42, resets_at: String(NOW + 1800) },
-    seven_day: { utilization: 0.87, resets_at: String(NOW + 86400 * 2) },
+    five_hour: { utilization: 42, resets_at: String(NOW + 1800) },
+    seven_day: { utilization: 87, resets_at: String(NOW + 86400 * 2) },
     seven_day_opus: null,
-    extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1200, utilization: 0.24, currency: "USD" }
+    extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1200, utilization: 24, currency: "USD" }
   },
   limits: [
-    { status: "allowed_warning", rateLimitType: "seven_day", utilization: 0.87, resetsAt: NOW + 86400 * 2 },
-    { status: "rejected", rateLimitType: "seven_day_sonnet", utilization: 1.02, resetsAt: NOW + 3600 }
+    { status: "allowed_warning", rateLimitType: "seven_day", utilization: 87, resetsAt: NOW + 86400 * 2 },
+    { status: "rejected", rateLimitType: "seven_day_sonnet", utilization: 102, resetsAt: NOW + 3600 }
   ]
 };
 const u1 = normalizeOauthUsage(usagePayload);
@@ -131,7 +131,7 @@ eq("7 天利用率", u1.windows.seven_day?.utilization, 0.87);
 eq("limits 覆盖出 rejected 状态", u1.windows.seven_day_sonnet?.status, "rejected");
 eq("额外用量解析", (u1.extraUsage as Record<string, unknown>)?.monthly_limit, 5000);
 
-const u2 = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 0.1, resets_at: "2026-10-10T00:00:00Z" } } });
+const u2 = normalizeOauthUsage({ rate_limits: { five_hour: { utilization: 10, resets_at: "2026-10-10T00:00:00Z" } } });
 eq("ISO 时间也能解析", typeof u2.windows.five_hour?.resetsAt, "number");
 
 const u3 = normalizeOauthUsage({ rate_limits_available: false, rate_limits: null });
@@ -179,16 +179,16 @@ const uOneHalf = normalizeOauthUsage({ limits: [{ kind: "session", percent: 1.5 
 eq("percent=1.5 是 1.5%", uOneHalf.windows.session?.utilization, 0.015);
 const uHundred = normalizeOauthUsage({ limits: [{ kind: "session", percent: 100 }] });
 eq("percent=100 是 100%", uHundred.windows.session?.utilization, 1);
-/* 老形状的 utilization 是小数，1 就是 100% */
-const uOldFull = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 1 }] });
-eq("老形状 utilization=1 是 100%", uOldFull.windows.session?.utilization, 1);
-const uOldSmall = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 0.01 }] });
-eq("老形状 utilization=0.01 是 1%", uOldSmall.windows.session?.utilization, 0.01);
+/* 裸 utilization 同样是百分数 —— 官方 /usage 对话框就是 Math.floor(utilization) + "% used" */
+const uOldFull = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 100 }] });
+eq("utilization=100 是 100%", uOldFull.windows.session?.utilization, 1);
+const uOldSmall = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 1 }] });
+eq("utilization=1 是 1%", uOldSmall.windows.session?.utilization, 0.01);
 
 /* 顶层 limits 与嵌套两种位置都认；老字段名 utilization 也还认 */
 const uTop = normalizeOauthUsage({ limits: [{ kind: "weekly_all", percent: 55 }] });
 eq("顶层 limits 也认", uTop.windows.weekly_all?.utilization, 0.55);
-const uOld = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 0.33 }] });
+const uOld = normalizeOauthUsage({ limits: [{ kind: "session", utilization: 33 }] });
 eq("老的 utilization 仍然认", uOld.windows.session?.utilization, 0.33);
 
 
@@ -222,19 +222,21 @@ eq("维度利用率按剩余推算", Math.round((w["dim:requests"]?.utilization 
 const rlUtil = observeRateLimit({
   "anthropic-ratelimit-unified-status": "allowed_warning",
   "anthropic-ratelimit-unified-5h-reset": String(NOW + 900),
-  "anthropic-ratelimit-unified-5h-utilization": "42.5",
+  "anthropic-ratelimit-unified-5h-utilization": "0.425",
   "anthropic-ratelimit-unified-7d-reset": String(NOW + 86400),
-  "anthropic-ratelimit-unified-7d-utilization": "13"
+  "anthropic-ratelimit-unified-7d-utilization": "0.13"
 });
 ok("响应头利用率已读出", rlUtil !== null);
-eq("5h 利用率原值", rlUtil?.fiveHourUtilization, 42.5);
-eq("7d 利用率原值", rlUtil?.sevenDayUtilization, 13);
+eq("5h 利用率原值", rlUtil?.fiveHourUtilization, 0.425);
+eq("7d 利用率原值", rlUtil?.sevenDayUtilization, 0.13);
 const wUtil = windowsFromRateLimit(rlUtil);
-eq("5h 窗口利用率归一成 0-1", wUtil.five_hour?.utilization, 0.425);
-eq("7d 窗口利用率归一成 0-1", wUtil.seven_day?.utilization, 0.13);
+/* 响应头本来就是 0-1 的小数（官方 unifiedWindows 的 describe 原文引用：
+   "utilization is the fraction of the window used (usually 0-1...)"），不能再除 100 */
+eq("5h 窗口利用率原样保留", wUtil.five_hour?.utilization, 0.425);
+eq("7d 窗口利用率原样保留", wUtil.seven_day?.utilization, 0.13);
 eq("5h 重置时刻保留", wUtil.five_hour?.resetsAt, NOW + 900);
 /* 只有利用率没有 reset 时也要出窗口 */
-const rlOnly = observeRateLimit({ "anthropic-ratelimit-unified-5h-utilization": "7" });
+const rlOnly = observeRateLimit({ "anthropic-ratelimit-unified-5h-utilization": "0.07" });
 eq("只有利用率也能出窗口", windowsFromRateLimit(rlOnly).five_hour?.utilization, 0.07);
 
 console.log("\n=== D. 端到端 ===");
@@ -263,8 +265,8 @@ function createUsageUpstream() {
           subscription_type: "max",
           rate_limits_available: true,
           rate_limits: {
-            five_hour: { utilization: 0.31, resets_at: String(Math.floor(Date.now() / 1000) + 3600) },
-            seven_day: { utilization: 0.62, resets_at: String(Math.floor(Date.now() / 1000) + 86400) }
+            five_hour: { utilization: 31, resets_at: String(Math.floor(Date.now() / 1000) + 3600) },
+            seven_day: { utilization: 62, resets_at: String(Math.floor(Date.now() / 1000) + 86400) }
           }
         }));
         return;

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+data-preview/
 .env
 .env.local
 *.log

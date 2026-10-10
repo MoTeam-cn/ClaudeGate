@@ -92,15 +92,19 @@ ok("自绘下拉已导出", authSrc.includes("window.CG.selectBox = selectBox"))
 eq("视图层不再用原生 select", countOf(viewsSrc, 'h("select"'), 0);
 ok("表格筛选也用自绘下拉", authSrc.includes("var sel = selectBox("));
 ok("弹层样式在组件表里", src("components.ts").includes(".cg-select__drop{"));
-/* 组件对象不是 DOM 元素，当 slot 用时必须取 .el，否则 appendChild 会炸 */
-ok("slot 筛选取的是 .el",
-  viewsSrc.includes('type:"slot", el:protocol.el') &&
-  viewsSrc.includes('type:"slot", el:outcome.el') &&
-  viewsSrc.includes('type:"slot", el:level.el'));
-ok("没有把组件对象直接塞给 slot",
-  !viewsSrc.includes('type:"slot", el:protocol}') &&
-  !viewsSrc.includes('type:"slot", el:outcome}') &&
-  !viewsSrc.includes('type:"slot", el:level}'));
+/* 组件对象不是 DOM 元素，当 toolbar 项用时必须取 .el，否则 appendChild 会炸 */
+ok("toolbar 筛选取的是 .el",
+  viewsSrc.includes('{ label:"结果", el:outcome.el }') &&
+  viewsSrc.includes('{ label:"协议", el:protocol.el }') &&
+  viewsSrc.includes('{ label:"级别", el:level.el }'));
+ok("没有把组件对象直接塞进 toolbar",
+  !viewsSrc.includes('el:outcome }') && !viewsSrc.includes('el:protocol }') && !viewsSrc.includes('el:level }'));
+/* 列筛选不再靠 slot 把控件挪到表头下面 —— 现在统一由表格的筛选栏渲染 */
+ok("列筛选不再用 slot 挪位置", !viewsSrc.includes('type:"slot"'));
+ok("筛选栏由表格统一渲染", authSrc.includes("cg-filterbar__item"));
+ok("文本筛选带清除叉", authSrc.includes("cg-filterbar__clear"));
+ok("行内操作收纳进更多菜单", authSrc.includes("function moreMenu(") && viewsSrc.includes("CG.moreMenu(["));
+ok("表格支持列对齐", authSrc.includes('c.align?" is-"+c.align'));
 ok("设置页守卫选项用真实枚举 lenient", viewsSrc.includes('value:"lenient"'));
 /* 注意别写太宽：运行日志级别筛选里的 warn 是合法的日志级别，不是守卫枚举 */
 ok("守卫不再有会被静默忽略的 warn 选项", !viewsSrc.includes('value:"warn", label:"warn（只记日志）"'));
@@ -132,7 +136,9 @@ ok("状态列读 outcome", reqlogBlock.includes('r.outcome==="blocked"'));
 ok("说明列读 errorMessage/blockDetail", reqlogBlock.includes("r.errorMessage || r.blockDetail"));
 ok("请求日志有路径列", reqlogBlock.includes('label:"路径"'));
 ok("模型卡片有保存勾选", viewsSrc.includes("保存勾选"));
-ok("账号行有刷新信息按钮", viewsSrc.includes('text:"刷新信息"'));
+ok("账号行有刷新按钮", viewsSrc.includes('text:"刷新",onclick:function(){ actRefreshAccount'));
+ok("Key 行重置入口挂在更多菜单里", viewsSrc.includes('label:"重置密钥"'));
+ok("设备指纹可点击复制", viewsSrc.includes("cg-mono-chip"));
 ok("出口卡片显示解析出的代理", viewsSrc.includes('line("出站代理"'))
 
 /* ================= 内联脚本可解析 ================= */
@@ -187,7 +193,11 @@ const features: Array<[string, boolean]> = [
   ["表头整块吸顶", /\.el-table thead\{[^}]*position:sticky/.test(src("components.ts"))],
   ["表格可以单独定高", src("client.ts").includes("opt.maxHeight")],
   ["长文本截断", all.includes("clamp") && all.includes("-webkit-line-clamp")],
-  ["列筛选", all.includes("cg-colfilter") && all.includes("filterRows")],
+  ["列筛选（工具栏式）", all.includes("cg-filterbar") && all.includes("filterRows")],
+  ["筛选控件带列名标签", all.includes("cg-filterbar__label")],
+  ["表头不再挂筛选行", !all.includes("cg-filterrow")],
+  ["用量计量条", all.includes("cg-meter__head") && all.includes("cg-meter__bar")],
+  ["新形状窗口有中文名", all.includes("weekly_all:") && all.includes("weekly_scoped:")],
   ["批量操作", all.includes("batchActions") && all.includes("cg-batchbar")],
   ["就地编辑", all.includes("function inlineEdit") && all.includes("cg-inline")],
   ["加载态骨架屏", all.includes("function skeleton") && all.includes("cg-shimmer")],
