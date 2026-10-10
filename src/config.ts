@@ -74,6 +74,7 @@ export function loadConfig(env: Env): Config {
     port: num(env.PORT, 8080),
     host: env.HOST ?? "0.0.0.0",
     publicUrl: stripSlash(env.PUBLIC_URL ?? ""),
+    upstreamRetries: Math.max(1, Math.min(10, num(env.UPSTREAM_RETRIES, 3))),
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",
 

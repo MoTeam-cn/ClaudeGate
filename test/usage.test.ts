@@ -209,6 +209,8 @@ console.log("\n=== D. 端到端 ===");
 /** 可控上游：能返回正常响应、额度耗尽错误，也能提供 /api/oauth/usage */
 function createUsageUpstream() {
   let mode: "ok" | "exhausted" = "ok";
+  /* null = 所有号都耗尽；给了凭据片段就只让那个号耗尽 */
+  let exhaustedFor: string | null = null;
   let usageCalls = 0;
   const seenAuth: string[] = [];
 
@@ -239,7 +241,9 @@ function createUsageUpstream() {
         return;
       }
 
-      if (mode === "exhausted") {
+      const cred = String(req.headers.authorization ?? req.headers["x-api-key"] ?? "");
+      const isExhausted = mode === "exhausted" && (exhaustedFor === null || cred.indexOf(exhaustedFor) !== -1);
+      if (isExhausted) {
         res.writeHead(403, {
           "content-type": "application/json",
           "anthropic-ratelimit-unified-status": "rejected",
@@ -295,6 +299,7 @@ function createUsageUpstream() {
 
   return {
     setMode(m: "ok" | "exhausted") { mode = m; },
+    setExhaustedFor(v: string | null) { exhaustedFor = v; },
     get usageCalls() { return usageCalls; },
     get seenAuth() { return seenAuth; },
     listen(): Promise<number> {
@@ -393,13 +398,14 @@ const consoleData = (asRecord(consoleUsage.json).data as Array<Record<string, un
 eq("Console Key 查询被明确拒绝", consoleData.ok, false);
 ok("给出可读原因", String(consoleData.error).includes("订阅"), String(consoleData.error));
 
-/* D5 额度耗尽封印 + 故障转移 */
+/* D5 额度耗尽封印 + 请求内故障转移 */
 upstream.setMode("exhausted");
+upstream.setExhaustedFor("oauth-token-1"); /* 只让订阅号耗尽，另一个号还健康 */
 const exhaustedRes = await request(addr.port, "/v1/messages", { headers: CC, body: BODY });
-eq("耗尽错误原样返回 403", exhaustedRes.status, 403);
+eq("订阅号耗尽时请求内换号成功", exhaustedRes.status, 200);
 await sleep(150);
 const sealed = gw.accounts.get(acc1.id);
-eq("账号被标记 exhausted", sealed?.status, "exhausted");
+eq("耗尽的号被封印", sealed?.status, "exhausted");
 ok("记录耗尽原因", String(sealed?.exhaustedReason).includes("billing_error"), String(sealed?.exhaustedReason));
 ok("记录恢复时刻", (sealed?.exhaustedUntil ?? 0) > Math.floor(Date.now() / 1000), String(sealed?.exhaustedUntil));
 ok("恢复时刻不超 6 小时", (sealed?.exhaustedUntil ?? 0) <= Math.floor(Date.now() / 1000) + 6 * 3600 + 2);
@@ -407,15 +413,18 @@ ok("恢复时刻不超 6 小时", (sealed?.exhaustedUntil ?? 0) <= Math.floor(Da
 const snap = gw.scheduler.snapshot();
 eq("快照里耗尽数为 1", snap.exhausted, 1);
 
-/* 耗尽账号不再被选中，请求落到另一个号 */
-const afterSeal = await request(addr.port, "/v1/messages", {
+const logsAfter = gw.logs.queryRequests({ limit: 1 });
+eq("这次用的是没耗尽的号", logsAfter.rows[0]?.accountId, acc2.id);
+
+/* D5b 所有号都耗尽：错误原样回给客户端，两个号都封印 */
+upstream.setExhaustedFor(null);
+const allExhausted = await request(addr.port, "/v1/messages", {
   headers: { ...CC, "x-claude-code-session-id": "sess-usage-2" },
   body: BODY
 });
-eq("耗尽后仍能靠另一个号成功", afterSeal.status, 403);
-await sleep(120);
-const logsAfter = gw.logs.queryRequests({ limit: 2 });
-ok("耗尽号没被再次使用", logsAfter.rows.some((r) => r.accountId === acc2.id), JSON.stringify(logsAfter.rows.map((r) => r.accountId)));
+eq("全部耗尽时 403 回给客户端", allExhausted.status, 403);
+await sleep(150);
+eq("此时两个号都已封印", gw.accounts.list().filter((a) => a.status === "exhausted").length, 2);
 
 /* D6 面板展示 */
 const accList = await getText(addr.port, "/panel/api?action=accounts&key=" + ADMIN);
@@ -432,7 +441,6 @@ eq(
   asRecord(asRecord(asRecord(ov.json).data).pool).exhausted,
   gw.accounts.list().filter((a) => a.status === "exhausted").length
 );
-eq("此时两个号都已封印", gw.accounts.list().filter((a) => a.status === "exhausted").length, 2);
 ok("概览有耗尽清单", Array.isArray(asRecord(asRecord(asRecord(ov.json).data).pool).exhaustedList));
 
 /* D7 手动恢复 */

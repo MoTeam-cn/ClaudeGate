@@ -89,11 +89,24 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
       return;
     }
     if (isUpstreamError(up)) {
+      /* 挑不到号不是「你的 Key 不对」，所以不给 401 —— 401 会让客户端以为密钥废了。
+         503 才能让它按可重试处理。原因由调度器给出：空池 / 冷却 / 耗尽 / 停用，各不相同。 */
+      const why = up.reason ?? "号池里没有可用账号。";
       if (tracker) {
         tracker.outcome = "error";
-        tracker.errorMessage = "no_credential";
+        tracker.errorMessage = "no_credential: " + why;
       }
-      anthropicError(res, 401, "号池里没有可用账号，请先在面板添加或启用账号。", "authentication_error", "no_credential");
+      log.warn("[" + (requestIdOf(res) ?? "-") + "] " + why);
+      /* 全在冷却 = 暂时性的限流，用 429 + Retry-After，客户端会退避重试；
+         其余（空池 / 全停用）才是 503 —— 重试也不会好 */
+      if (up.retryAfterSec) res.setHeader("retry-after", String(up.retryAfterSec));
+      anthropicError(
+        res,
+        up.retryAfterSec ? 429 : 503,
+        why,
+        up.retryAfterSec ? "rate_limit_error" : "api_error",
+        "no_credential"
+      );
       return;
     }
 
@@ -102,7 +115,9 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
     if (up.status >= 400) {
       const buf = await collect(decodeStream(up.raw, up.headers["content-encoding"]), 8 * 1024 * 1024).catch(() => Buffer.alloc(0));
       const text = buf.toString("utf8");
-      if (tracker) noteUpstreamError(tracker, up, text);
+      const note = tracker ? noteUpstreamError(tracker, up, text) : null;
+    /* 上游报错要进运行日志：请求日志只留一列，塞不下完整响应体 */
+    log.warn("[" + (requestIdOf(res) ?? "-") + "] 上游 " + up.status + "：" + (note?.message ?? ""));
       res.writeHead(up.status, passThroughHeaders(up));
       res.end(buf);
       return;
@@ -189,11 +204,24 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
       return;
     }
     if (isUpstreamError(up)) {
+      /* 挑不到号不是「你的 Key 不对」，所以不给 401 —— 401 会让客户端以为密钥废了。
+         503 才能让它按可重试处理。原因由调度器给出：空池 / 冷却 / 耗尽 / 停用，各不相同。 */
+      const why = up.reason ?? "号池里没有可用账号。";
       if (tracker) {
         tracker.outcome = "error";
-        tracker.errorMessage = "no_credential";
+        tracker.errorMessage = "no_credential: " + why;
       }
-      anthropicError(res, 401, "号池里没有可用账号，请先在面板添加或启用账号。", "authentication_error", "no_credential");
+      log.warn("[" + (requestIdOf(res) ?? "-") + "] " + why);
+      /* 全在冷却 = 暂时性的限流，用 429 + Retry-After，客户端会退避重试；
+         其余（空池 / 全停用）才是 503 —— 重试也不会好 */
+      if (up.retryAfterSec) res.setHeader("retry-after", String(up.retryAfterSec));
+      anthropicError(
+        res,
+        up.retryAfterSec ? 429 : 503,
+        why,
+        up.retryAfterSec ? "rate_limit_error" : "api_error",
+        "no_credential"
+      );
       return;
     }
 

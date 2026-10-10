@@ -52,22 +52,32 @@ function newDir(tag: string): string {
   return d;
 }
 
-/** 可切换状态码的假上游，用来验证故障转移与冷却 */
+/**
+ * 可切换状态码的假上游，用来验证故障转移与冷却。
+ *
+ * 状态码可以只对某一个号生效（setStatusFor）—— 这是必须的：
+ * 网关现在会在一次请求里换号重试，一个「所有号都同一个状态」的假上游
+ * 根本表达不出「这个号限流、那个号正常」。
+ */
 function createFlakyUpstream(): {
   setStatus(n: number): void;
+  setStatusFor(credential: string, n: number): void;
   hits: string[];
   listen(): Promise<number>;
   close(): Promise<void>;
 } {
   let status = 200;
+  const perKey = new Map<string, number>();
   const hits: string[] = [];
   const server = http.createServer((req, res) => {
     req.on("data", () => undefined);
     req.on("end", () => {
-      hits.push(String(req.headers.authorization ?? req.headers["x-api-key"] ?? "?"));
-      if (status >= 400) {
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "mock " + status } }));
+      const cred = String(req.headers.authorization ?? req.headers["x-api-key"] ?? "?");
+      hits.push(cred);
+      const st = perKey.get(cred) ?? status;
+      if (st >= 400) {
+        res.writeHead(st, { "content-type": "application/json" });
+        res.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "mock " + st } }));
         return;
       }
       res.writeHead(200, { "content-type": "application/json" });
@@ -83,6 +93,9 @@ function createFlakyUpstream(): {
   return {
     setStatus(n) {
       status = n;
+    },
+    setStatusFor(credential, n) {
+      perKey.set(credential, n);
     },
     hits,
     listen(): Promise<number> {
@@ -422,18 +435,28 @@ const f2 = gw3.accounts.create({ label: "好号", kind: "apikey", apiKey: "sk-an
 eq("故障转移场景两个号", gw3.accounts.list().length, 2);
 
 const failKey = gw3.keys.create({ name: "failover", fingerprintMode: "passthrough" });
-flaky.setStatus(429);
-const failed = await request(addr3.port, "/v1/messages", { headers: { ...CC, "x-api-key": failKey.plaintext }, body: BODY });
-ok("上游 429 原样回给客户端", failed.status === 429, String(failed.status));
-await sleep(80);
-const hitAccount = gw3.accounts.list().find((a: Account) => a.errorCount > 0);
-ok("失败的号被记账", !!hitAccount, JSON.stringify(gw3.accounts.list().map((a) => ({ l: a.label, e: a.errorCount }))));
-ok("失败的号进入冷却", !!hitAccount && !!hitAccount.cooldownUntil);
-eq("坏号被选中并失败", hitAccount?.id, f1.id);
 flaky.setStatus(200);
-const afterFail = await request(addr3.port, "/v1/messages", { headers: { ...CC, "x-api-key": failKey.plaintext }, body: BODY });
-eq("自动切到健康号后成功", afterFail.status, 200);
+flaky.setStatusFor("sk-ant-bad", 429);
+
+/* 坏号 429，同一个请求里就该换到好号，客户端不该看到错误 */
+const failed = await request(addr3.port, "/v1/messages", { headers: { ...CC, "x-api-key": failKey.plaintext }, body: BODY });
+eq("坏号 429 时请求内换号成功", failed.status, 200);
 eq("确实换了号", flaky.hits.length >= 2 && flaky.hits[0] !== flaky.hits[1], true);
+eq("第一次打的是坏号", flaky.hits[0], "sk-ant-bad");
+eq("第二次打的是好号", flaky.hits[1], "sk-ant-good");
+await sleep(120);
+const badOne = gw3.accounts.get(f1.id);
+ok("被放弃的坏号记了账", (badOne?.errorCount ?? 0) > 0, JSON.stringify({ e: badOne?.errorCount, c: badOne?.cooldownUntil }));
+ok("被放弃的坏号进入冷却", !!badOne?.cooldownUntil);
+const goodOne = gw3.accounts.get(f2.id);
+eq("好号没被误伤", goodOne?.errorCount, 0);
+const logI = gw3.logs.queryRequests({ limit: 1 });
+eq("请求日志记的是最终成功的号", logI.rows[0]?.accountId, f2.id);
+
+/* 所有号都 429：错误要原样回给客户端 */
+flaky.setStatus(429);
+const allBad = await request(addr3.port, "/v1/messages", { headers: { ...CC, "x-api-key": failKey.plaintext }, body: BODY });
+ok("所有号都失败时 429 原样回给客户端", allBad.status === 429, String(allBad.status));
 gw3.accounts.remove(f1.id);
 gw3.accounts.remove(f2.id);
 

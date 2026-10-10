@@ -46,6 +46,8 @@ export interface Config {
   port: number;
   host: string;
   publicUrl: string;
+  /** 上游 429/5xx 时最多换几个号重试（含第一次，所以 1 = 不重试） */
+  upstreamRetries: number;
   dataDir: string;
   secret: string;
 
@@ -219,6 +221,10 @@ export interface UpstreamOk extends UpstreamResponse {
 
 export interface UpstreamError {
   error: "no_credential";
+  /** 为什么挑不到号：空池 / 全在冷却 / 全耗尽 / 全停用，尽量说清 */
+  reason?: string;
+  /** 全在冷却时给出「多少秒后重试」，调用方据此退避 */
+  retryAfterSec?: number | null;
 }
 
 export type UpstreamResult = UpstreamOk | UpstreamError;

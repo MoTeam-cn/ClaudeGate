@@ -9,6 +9,8 @@ export interface PickOptions {
   sessionKey: string;
   /** API Key 绑定的账号，优先使用 */
   preferredAccountId?: string | null;
+  /** 本次调用里已经失败过的号，别再挑到它们 */
+  exclude?: ReadonlySet<string>;
 }
 
 export interface Scheduler {
@@ -17,6 +19,8 @@ export interface Scheduler {
   reportFailure(accountId: string, status: number, message: string): void;
   /** 额度耗尽：标记并记下恢复时刻 */
   reportExhausted(accountId: string, reason: string, resetAtSec: number): void;
+  /** 挑不到号时，说清是为什么 —— 别让用户看到「请先添加账号」却明明有账号 */
+  unavailableReason(): { message: string; retryAfterSec: number | null };
   /** 暂存从响应头观察到的限流状态，批量落库 */
   observeRateLimit(accountId: string, rl: RateLimitObservation): void;
   invalidateSession(sessionKey: string): void;
@@ -92,7 +96,8 @@ export function createScheduler(accounts: AccountStore, log: Logger): Scheduler 
 
     let all = accounts.list();
     all = reviveIfDue(all, Math.floor(now / 1000));
-    const pool = all.filter((a) => healthy(a, now));
+    const excluded = opts.exclude;
+    const pool = all.filter((a) => healthy(a, now) && !(excluded && excluded.has(a.id)));
 
     /* 1) API Key 绑定了固定账号 */
     if (opts.preferredAccountId) {
@@ -169,6 +174,43 @@ export function createScheduler(accounts: AccountStore, log: Logger): Scheduler 
     }
   }
 
+  /**
+   * 挑不到号时给一句人能用的解释。
+   *
+   * 之前路由统一回「号池里没有可用账号，请先在面板添加或启用账号」——
+   * 但账号明明在、只是在冷却时，这句话把人指去了完全错误的方向。
+   */
+  function unavailableReason(): { message: string; retryAfterSec: number | null } {
+    const all = accounts.list();
+    if (!all.length) return { message: "号池是空的，请先在面板添加账号。", retryAfterSec: null };
+    const now = Date.now();
+    const cooling = all.filter((a) => a.cooldownUntil && a.cooldownUntil * 1000 > now);
+    const exhausted = all.filter((a) => a.status === "exhausted");
+    const disabled = all.filter((a) => a.status === "disabled");
+    const errored = all.filter((a) => a.status === "error");
+
+    const parts: string[] = [];
+    if (cooling.length) parts.push(cooling.length + " 个冷却中");
+    if (exhausted.length) parts.push(exhausted.length + " 个额度耗尽");
+    if (disabled.length) parts.push(disabled.length + " 个已停用");
+    if (errored.length) parts.push(errored.length + " 个出错");
+    const detail = parts.length ? "（" + parts.join("、") + "）" : "";
+
+    /* 最早什么时候能恢复，直接给出来，免得用户去猜 */
+    const times = cooling
+      .map((a) => a.cooldownUntil as number)
+      .concat(exhausted.map((a) => a.exhaustedUntil ?? 0).filter((t) => t > 0));
+    const soonest = times.length ? Math.min.apply(null, times) : 0;
+    const when = soonest > 0 ? "，最早 " + new Date(soonest * 1000).toISOString() + " 恢复" : "";
+
+    const last = all.map((a) => a.lastError).filter((s): s is string => !!s)[0] ?? "";
+    const message =
+      "号池里 " + all.length + " 个账号当前都不可用" + detail + when + (last ? "。最近一次失败：" + last : "。");
+    /* 全在冷却时给出重试间隔：调用方据此退避，比一句「没账号」有用 */
+    const retryAfterSec = soonest > 0 ? Math.max(1, soonest - Math.floor(now / 1000)) : null;
+    return { message, retryAfterSec };
+  }
+
   function invalidateSession(sessionKey: string): void {
     sticky.delete(sessionKey);
   }
@@ -200,6 +242,7 @@ export function createScheduler(accounts: AccountStore, log: Logger): Scheduler 
     reportFailure,
     reportExhausted,
     observeRateLimit,
+    unavailableReason,
     invalidateSession,
     snapshot,
     stop

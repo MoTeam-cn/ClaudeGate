@@ -59,6 +59,7 @@
 |---|---|---|
 | `GUARD_MODE` | `strict` | `strict` 缺头直接 403 / `lenient` 缺头放行并告警 / `off` 不校验。**只对指纹策略为 `claude_code` 的 Key 生效** |
 | `GUARD_REQUIRE` | `user-agent,x-app` | 要求客户端提供的头。只该放「表明自己是 Claude Code」的身份头；`anthropic-version` / `anthropic-beta` / `x-claude-code-session-id` 由网关注入 —— session-id 是从 Key 种子派生的，让客户端提供只会被塞随机值，反而破坏跨请求稳定性 |
+| `UPSTREAM_RETRIES` | `3` | 上游 429/401/403/5xx 时最多换几个号重试（含第一次，所以 `1` = 不重试）。**只对「换个号可能就好了」的状态重试**，400 之类的请求本身有问题，换号也一样，重试只是白烧额度 |
 | `INJECT_MISSING` | `false` | 为缺失的头注入规范值。指纹策略为 `passthrough` 的 Key 一律强制注入，与此开关无关 |
 
 细节见[指纹与隐写](fingerprint.md)。
