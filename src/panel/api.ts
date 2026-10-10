@@ -6,7 +6,8 @@ import { dayString } from "../store/apikeys.ts";
 import { fetchOauthUsage, windowsFromRateLimit } from "../pool/usage.ts";
 import { fetchOauthProfile, profileLabel } from "../pool/profile.ts";
 import { checkEgress } from "../net/ipcheck.ts";
-import { catalogStatus, applyModelDisabled, parseDisabledSetting } from "../models.ts";
+import { catalogStatus, applyModelDisabled, parseDisabledSetting, applyModelLimits, limitsEditorState } from "../models.ts";
+import { parseLimitsSetting } from "../model-limits.ts";
 import { startOAuth, finishOAuth } from "../oauth-flow.ts";
 import type { Account, ApiKeyRecord, GatewayContext, RequestLogQuery, RuntimeLogQuery, UsageSnapshot } from "../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -382,6 +383,26 @@ export function createPanelApi(ctx: GatewayContext, requireAdmin: (req: Incoming
         const st = await ctx.modelCatalog.refresh();
         ctx.log.info("panel: 模型目录刷新 " + st.entries.length + " 个 source=" + st.source);
         sendJson(res, 200, { ok: true, data: catalogStatus(ctx) });
+        return;
+      }
+
+      /* 每个模型的上下文窗口与最大输出。编辑器的初始状态 */
+      case "models.limits":
+        sendJson(res, 200, { ok: true, data: limitsEditorState(ctx) });
+        return;
+
+      /*
+       * 保存模型限制。只存「专门给这个模型配的」那些项，
+       * 没配的留给 "*" 兜底 —— 这样以后目录里加新模型会自动继承兜底值，
+       * 不用挨个补一遍。
+       */
+      case "models.limits.save": {
+        const raw = body.limits;
+        const incoming = parseLimitsSetting(typeof raw === "string" ? raw : JSON.stringify(raw ?? {}));
+        settings.set("modelLimits", JSON.stringify(incoming));
+        applyModelLimits(ctx);
+        ctx.log.info("panel: 模型上下文限制更新为 " + Object.keys(incoming).length + " 项");
+        sendJson(res, 200, { ok: true, data: limitsEditorState(ctx) });
         return;
       }
 

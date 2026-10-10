@@ -73,6 +73,38 @@ export function parseModelLimits(raw: string | undefined): Record<string, ModelL
   return out;
 }
 
+/**
+ * 解析面板存的 JSON。形状就是 Record<模型名, {context, maxOutput}>。
+ * 存坏了当空 —— 一个设置项不该让整条限制链失效。
+ */
+export function parseLimitsSetting(raw: unknown): Record<string, ModelLimit> {
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { return {}; }
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, ModelLimit> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (!val || typeof val !== "object") continue;
+    const o = val as Record<string, unknown>;
+    const context = Number(o.context);
+    if (!Number.isFinite(context) || context <= 0) continue;
+    const rawOut = o.maxOutput;
+    const maxOutput = rawOut === null || rawOut === undefined || rawOut === ""
+      ? null
+      : (Number.isFinite(Number(rawOut)) && Number(rawOut) > 0 ? Math.round(Number(rawOut)) : null);
+    out[normalizeLimitKey(k)] = { context: Math.round(context), maxOutput };
+  }
+  return out;
+}
+
+/** 面板设置覆盖 env 配置：同一个模型以面板为准 */
+export function mergeLimits(
+  base: Record<string, ModelLimit>,
+  override: Record<string, ModelLimit>
+): Record<string, ModelLimit> {
+  return { ...base, ...override };
+}
+
 /** 取某个模型的限制；精确匹配优先，其次 "*" 兜底 */
 export function limitFor(cfg: Config, model: unknown): ModelLimit | null {
   const key = normalizeLimitKey(model);

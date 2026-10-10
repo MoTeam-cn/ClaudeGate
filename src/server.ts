@@ -11,7 +11,7 @@ import { createSettingsStore } from "./store/settings.ts";
 import { createScheduler } from "./pool/scheduler.ts";
 import { createCredentialManager } from "./pool/credentials.ts";
 import { createModelCatalog } from "./model-catalog.ts";
-import { applyModelDisabled } from "./models.ts";
+import { applyModelDisabled, applyModelLimits } from "./models.ts";
 import type { ModelCatalogHandle } from "./model-catalog.ts";
 import { createQuotaGuard } from "./middleware/quota.ts";
 import { createAgent, createHttpAgent } from "./upstream.ts";
@@ -195,6 +195,8 @@ export function createGateway(env: Record<string, string | undefined> = process.
   const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota, modelCatalog };
   /* 隐藏清单：部署级 env + 面板里勾掉的，取并集 */
   applyModelDisabled(ctx);
+  /* 上下文限制：env 的 MODEL_LIMITS 是底座，面板里配的同名项覆盖它 */
+  applyModelLimits(ctx);
 
   const admin = createAdminRoutes(ctx);
   const auth = createAuthRoutes(ctx);

@@ -5,7 +5,7 @@
  * 这里只负责：别名归一、请求里的模型 id 认不认。
  */
 import { MODEL_ALIASES } from "./constants.ts";
-import { limitFor } from "./model-limits.ts";
+import { limitFor, normalizeLimitKey, parseLimitsSetting, mergeLimits } from "./model-limits.ts";
 import type { Config, GatewayContext } from "./types.ts";
 import type { OpenAIModelEntry } from "./model-catalog.ts";
 
@@ -42,6 +42,44 @@ export function listModels(ctx: GatewayContext): OpenAIModelEntry[] {
       ...(lim.maxOutput === null ? {} : { max_output_tokens: lim.maxOutput })
     };
   });
+}
+
+/**
+ * 把面板里配的模型限制合并进运行时配置。
+ *
+ * env 的 MODEL_LIMITS 是底座（部署级），面板是运行时开关 ——
+ * 同一个模型以面板为准。没配的模型落到 "*" 兜底，再没有就是不限制。
+ */
+export function applyModelLimits(ctx: GatewayContext): void {
+  const fromPanel = parseLimitsSetting(ctx.settings.get("modelLimits", ""));
+  ctx.cfg.modelLimits = mergeLimits(ctx.cfg.modelLimits, fromPanel);
+}
+
+/** 面板编辑用：当前生效的限制 + 目录里的模型，拼成一张可编辑的表 */
+export function limitsEditorState(ctx: GatewayContext): Record<string, unknown> {
+  ctx.modelCatalog.ensure();
+  const rows = ctx.modelCatalog.get().entries.map((e) => {
+    const lim = limitFor(ctx.cfg, e.id);
+    const own = ctx.cfg.modelLimits[normalizeLimitKey(e.id)];
+    return {
+      id: e.id,
+      label: e.label,
+      family: e.family,
+      hidden: ctx.modelCatalog.isHidden(e.id),
+      /* own 是专门给这个模型配的；eff 是实际生效的（可能来自 "*" 兜底） */
+      context: own?.context ?? null,
+      maxOutput: own?.maxOutput ?? null,
+      effContext: lim?.context ?? null,
+      effMaxOutput: lim?.maxOutput ?? null
+    };
+  });
+  const fb = ctx.cfg.modelLimits["*"] ?? null;
+  return {
+    fallback: { context: fb?.context ?? null, maxOutput: fb?.maxOutput ?? null },
+    models: rows,
+    guard: ctx.cfg.contextGuard,
+    headroom: ctx.cfg.contextHeadroom
+  };
 }
 
 export function catalogIds(ctx: GatewayContext): string[] {

@@ -192,10 +192,77 @@ function renderSettings(box){
       host.appendChild(egressCard());
       host.appendChild(modelCard());
       host.appendChild(adminKeyCard());
+      host.appendChild(limitsCard());
       return s;
     });
     });
   });
+}
+
+/* 模型上下文限制卡片。每个模型一行：上下文窗口 + 最大输出。
+   留空 = 用兜底；兜底也留空 = 不限制。 */
+function limitsCard(){
+  var out = h("div",{});
+  var btn = h("button",{class:"el-button el-button--primary",type:"button",text:"保存"});
+  var rows = [];
+  var fbCtx = null, fbOut = null;
+
+  function numInput(v){
+    return h("input",{class:"el-input__inner",type:"number",min:"0",step:"1000",
+      style:{width:"104px",flex:"0 0 104px"},
+      value: v===null||v===undefined ? "" : String(v)});
+  }
+  function paint(r){
+    CG.paint(out, r, function(out){
+      rows = [];
+      fbCtx = numInput(r.fallback ? r.fallback.context : null);
+      fbOut = numInput(r.fallback ? r.fallback.maxOutput : null);
+      out.appendChild(h("div",{class:"el-form-item"},[
+        h("div",{class:"el-form-item__label",text:"兜底（没单独配的模型都用它）"}),
+        h("div",{style:{display:"flex",gap:"8px"}},[ fbCtx, fbOut ])
+      ]));
+      var wrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:"6px"}});
+      for(var i=0;i<(r.models||[]).length;i++){
+        (function(m){
+          var c = numInput(m.context);
+          var o = numInput(m.maxOutput);
+          rows.push({ id:m.id, ctx:c, out:o });
+          wrap.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}},[
+            h("span",{style:{flex:"1 1 auto",minWidth:"0",fontSize:"12px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
+              title:m.id + "  →  生效 " + (m.effContext===null||m.effContext===undefined ? "不限制" : m.effContext),
+              text:m.label + " · " + m.id}),
+            c, o
+          ]));
+        })(r.models[i]);
+      }
+      out.appendChild(h("div",{class:"el-form-item__label",style:{marginTop:"12px"},text:"每个模型单独配（留空 = 用兜底）"}));
+      out.appendChild(wrap);
+      out.appendChild(h("div",{style:{marginTop:"10px"}},[ btn ]));
+    });
+  }
+  function load(){ return CG.api("models.limits",{}).then(paint); }
+
+  btn.addEventListener("click", function(){
+    var limits = {};
+    function put(k, c, o){
+      var cv = Number(c.value), ov = Number(o.value);
+      if(!c.value || !(cv>0)) return;
+      limits[k] = { context:cv, maxOutput: o.value && ov>0 ? ov : null };
+    }
+    put("*", fbCtx, fbOut);
+    for(var i=0;i<rows.length;i++) put(rows[i].id, rows[i].ctx, rows[i].out);
+    btn.disabled = true;
+    CG.api("models.limits.save",{ limits:limits }).then(function(r){
+      paint(r); CG.toast("模型限制已保存（"+Object.keys(limits).length+" 项）","success");
+    }).catch(CG.showErr).then(function(){ btn.disabled = false; });
+  });
+
+  load().catch(function(){});
+  return card("模型上下文", h("div",{},[
+    h("div",{class:"tiny muted",style:{lineHeight:"1.7"},
+      text:"每个模型的上下文窗口与最大输出。超过「窗口 × (1 + 容差)」的请求会被拒绝 —— 客户端没及时压缩时的兜底。最大输出目前只对外声明、不做限制。"}),
+    out
+  ]));
 }
 
 /* ---- 面板登录密钥：状态 + 重置 ---- */
