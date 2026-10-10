@@ -82,7 +82,22 @@ const upstream = http.createServer((req, res) => {
       res.end();
       return;
     }
-    res.writeHead(200, { "content-type": "application/json" });
+    res.writeHead(200, {
+      "content-type": "application/json",
+      /* 官方点名要回给客户端的 */
+      "request-id": "req_passthrough_1",
+      "anthropic-ratelimit-unified-status": "allowed",
+      "anthropic-ratelimit-unified-5h-utilization": "0.42",
+      "anthropic-organization-id": "org_passthrough",
+      "retry-after": "3",
+      "x-should-retry": "false",
+      /* 网关完全不认识的，也必须原样回 */
+      "x-custom-unknown-header": "keep-me",
+      "anthropic-some-future-header": "also-keep-me",
+      /* 必须丢掉的逐跳头 */
+      "set-cookie": "should_be_dropped=1",
+      connection: "keep-alive"
+    });
     res.end(JSON.stringify({
       id: "msg_1", type: "message", role: "assistant",
       content: [{ type: "tool_use", id: "toolu_01ABCdef", name: "Bash", input: { command: "ls" } }],
@@ -119,7 +134,9 @@ const CC: Record<string, string> = {
   "x-app": "cli",
   "anthropic-version": "2023-06-01",
   "anthropic-beta": BETA,
-  "x-claude-code-session-id": "sess-pass-1"
+  "x-claude-code-session-id": "sess-pass-1",
+  /* 网关不认识的请求头，也要原样到上游 */
+  "x-custom-client-header": "keep-me-too"
 };
 
 /** 客户端请求：把 safeguards 挂在消息内容块上（官方就是这么放的） */
@@ -182,6 +199,29 @@ ok("流里带完整 results 结构", streamed.text.indexOf('"by":"server"') !== 
 ok("message_stop 到了", streamed.text.indexOf("message_stop") !== -1);
 const sentStream = JSON.parse(upRawBody) as Record<string, any>;
 eq("流式请求里的 safeguards 也原样", JSON.stringify(sentStream?.messages?.[0]?.content?.[0]?.safeguards), JSON.stringify(SAFEGUARDS));
+
+/* ================= F. 响应头与请求头全量透传 ================= */
+console.log("\n=== F. 响应头 / 请求头全量透传 ===");
+{
+  const h = nonStream.headers;
+  /* 官方要回给客户端的 */
+  eq("request-id 原样", h["request-id"], "req_passthrough_1");
+  eq("ratelimit 状态原样", h["anthropic-ratelimit-unified-status"], "allowed");
+  eq("ratelimit 用量原样", h["anthropic-ratelimit-unified-5h-utilization"], "0.42");
+  eq("organization-id 原样", h["anthropic-organization-id"], "org_passthrough");
+  eq("retry-after 原样", h["retry-after"], "3");
+  eq("x-should-retry 原样", h["x-should-retry"], "false");
+  /* 网关不认识的 —— 白名单式的实现会在这里挂掉 */
+  eq("未知响应头也原样", h["x-custom-unknown-header"], "keep-me");
+  eq("未知 anthropic-* 也原样", h["anthropic-some-future-header"], "also-keep-me");
+  /* 必须丢的 */
+  ok("上游 set-cookie 被丢掉", h["set-cookie"] === undefined, JSON.stringify(h["set-cookie"]));
+  eq("content-type 原样", String(h["content-type"] ?? "").split(";")[0], "application/json");
+  /* 请求头 */
+  eq("未知请求头也到了上游", upHeaders["x-custom-client-header"], "keep-me-too");
+  eq("content-type 请求头原样", String(upHeaders["content-type"] ?? "").split(";")[0], "application/json");
+  ok("connection 被归一成 keep-alive", String(upHeaders["connection"] ?? "").toLowerCase() === "keep-alive", upHeaders["connection"]);
+}
 
 /* ================= E. 分类器往返观测 ================= */
 console.log("\n=== E. 分类器往返观测 ===");
