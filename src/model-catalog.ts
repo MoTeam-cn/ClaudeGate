@@ -58,6 +58,14 @@ export interface OpenAIModelEntry {
   /** 非标准字段，方便面板/客户端看出这是什么档位 */
   display_name?: string;
   family?: string;
+  /**
+   * 上下文窗口与最大输出。来自 MODEL_LIMITS 配置，没配就不带这两个字段。
+   * 客户端开了 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY 时会读它，
+   * 从而按模型决定自动压缩线 —— 这是比每台机器配
+   * CLAUDE_CODE_AUTO_COMPACT_WINDOW 更干净的那条路。
+   */
+  context_window?: number;
+  max_output_tokens?: number;
 }
 
 export interface ModelCatalogHandle {

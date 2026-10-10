@@ -15,6 +15,7 @@ import { inspectPayload } from "../security/inspect.ts";
 import { askedForClassifier, answeredByClassifier, createClassifierSniffer, logClassifier } from "../security/classifier.ts";
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { checkModelAllowed } from "../models.ts";
+import { checkContext } from "../model-limits.ts";
 import { withBeta } from "../constants.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { isUpstreamError } from "../types.ts";
@@ -83,6 +84,29 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
       log.warn("[" + (requestIdOf(res) ?? "-") + "] 模型不在清单里：" + String(model));
       anthropicError(res, 400, mcheck.reason, "invalid_request_error", "model_not_found");
       return;
+    }
+
+    /*
+     * 上下文超限检查。放在发上游之前 —— 拦在这里才不白烧一个号。
+     * 只对配了 MODEL_LIMITS 的模型生效；没配就是不限制。
+     */
+    if (ctx.cfg.contextGuard !== "off") {
+      const ccheck = checkContext(ctx.cfg, model, JSON.stringify(body ?? {}));
+      if (!ccheck.ok) {
+        log.warn(
+          "[" + (requestIdOf(res) ?? "-") + "] 上下文超限：约 " + ccheck.estimated +
+          " tokens，上限 " + ccheck.ceiling + "（窗口 " + (ccheck.limit?.context ?? 0) + "）"
+        );
+        if (ctx.cfg.contextGuard === "block") {
+          if (tracker) {
+            tracker.outcome = "blocked";
+            tracker.blockReason = "context_too_long";
+            tracker.blockDetail = ccheck.reason;
+          }
+          anthropicError(res, 400, ccheck.reason, "invalid_request_error", "context_too_long");
+          return;
+        }
+      }
     }
 
     let up;

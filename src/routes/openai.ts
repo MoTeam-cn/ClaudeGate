@@ -9,6 +9,7 @@ import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { openaiToAnthropic } from "../translate/openai-in.ts";
 import { anthropicToOpenai, streamAnthropicToOpenai } from "../translate/openai-out.ts";
 import { listModels, checkModelAllowed } from "../models.ts";
+import { checkContext } from "../model-limits.ts";
 import { bool, safeJson } from "../utils.ts";
 import { withBeta } from "../constants.ts";
 import { isUpstreamError } from "../types.ts";
@@ -83,6 +84,26 @@ export function createOpenaiRoutes(ctx: GatewayContext) {
       log.warn("[" + (requestIdOf(res) ?? "-") + "] 模型不在清单里：" + String(requested));
       openaiError(res, 400, mcheck.reason, "invalid_request_error", "model_not_found");
       return;
+    }
+
+    /* 上下文超限检查。量的是真正要发上游的那份（已翻译成 Anthropic 形状） */
+    if (ctx.cfg.contextGuard !== "off") {
+      const ccheck = checkContext(ctx.cfg, requested, JSON.stringify(payload ?? {}));
+      if (!ccheck.ok) {
+        log.warn(
+          "[" + (requestIdOf(res) ?? "-") + "] 上下文超限：约 " + ccheck.estimated +
+          " tokens，上限 " + ccheck.ceiling
+        );
+        if (ctx.cfg.contextGuard === "block") {
+          if (tracker) {
+            tracker.outcome = "blocked";
+            tracker.blockReason = "context_too_long";
+            tracker.blockDetail = ccheck.reason;
+          }
+          openaiError(res, 400, ccheck.reason, "invalid_request_error", "context_too_long");
+          return;
+        }
+      }
     }
 
     let up;

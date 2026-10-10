@@ -1,11 +1,13 @@
 import path from "node:path";
 import { PROD, DEFAULT_SCOPES, GUARD_MODES, OAUTH_MODES, BORINGSSL_CIPHERS, USER_ID_MODES, TRANSPORT_MODES } from "./constants.ts";
 import { num, bool, stripSlash } from "./utils.ts";
+import { parseModelLimits } from "./model-limits.ts";
 import type { Config, GuardMode, OAuthMode, LogLevel, StegoMode, ReqIdMode } from "./types.ts";
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 const STEGO_MODES: readonly StegoMode[] = ["block", "strip", "log", "off"];
 const REQ_ID_MODES: readonly ReqIdMode[] = ["error", "always", "off"];
+const CONTEXT_GUARDS: readonly string[] = ["block", "log", "off"];
 
 type Env = Record<string, string | undefined>;
 
@@ -70,6 +72,14 @@ export function loadConfig(env: Env): Config {
     ? (rawLog as LogLevel)
     : "info";
 
+  const rawCtxGuard = String(env.CONTEXT_GUARD ?? "block").toLowerCase();
+  const contextGuard: Config["contextGuard"] = (CONTEXT_GUARDS as readonly string[]).includes(rawCtxGuard)
+    ? (rawCtxGuard as Config["contextGuard"])
+    : "block";
+  const headroomRaw = Number(env.CONTEXT_HEADROOM ?? "0.1");
+  const contextHeadroom =
+    Number.isFinite(headroomRaw) && headroomRaw >= 0 && headroomRaw <= 1 ? headroomRaw : 0.1;
+
   const cfg: Config = {
     port: num(env.PORT, 8080),
     host: env.HOST ?? "0.0.0.0",
@@ -77,6 +87,9 @@ export function loadConfig(env: Env): Config {
     upstreamRetries: Math.max(1, Math.min(10, num(env.UPSTREAM_RETRIES, 3))),
     attributionHeader: String(env.ATTRIBUTION_HEADER ?? "on").toLowerCase() !== "off",
     attributionEntrypoint: env.CLAUDE_CODE_ENTRYPOINT ?? "cli",
+    modelLimits: parseModelLimits(env.MODEL_LIMITS),
+    contextGuard,
+    contextHeadroom,
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",
 

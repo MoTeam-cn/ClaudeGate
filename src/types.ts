@@ -42,6 +42,14 @@ export type OAuthMode = "claude_ai" | "console" | "design";
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type CredentialKind = "oauth" | "apikey";
 
+/** 单个模型的上下文窗口与最大输出 */
+export interface ModelLimit {
+  /** 上下文窗口（token） */
+  context: number;
+  /** 最大输出（token）；null 表示不限制 */
+  maxOutput: number | null;
+}
+
 export interface Config {
   port: number;
   host: string;
@@ -52,6 +60,15 @@ export interface Config {
   attributionHeader: boolean;
   /** cc_entrypoint 的值，默认 cli */
   attributionEntrypoint: string;
+  /**
+   * 每个模型的上下文窗口与最大输出。键是归一化后的模型名（小写、去 [1m]、去日期后缀），
+   * "*" 是兜底项。见 src/model-limits.ts 的语法说明。
+   */
+  modelLimits: Record<string, ModelLimit>;
+  /** 上下文超限怎么处理：block 拒绝（默认）/ log 只记 / off 不查 */
+  contextGuard: "block" | "log" | "off";
+  /** 超限容差。0.1 = 允许超出 10% 才拒绝 —— 客户端计数和真实计数不会完全一致 */
+  contextHeadroom: number;
   dataDir: string;
   secret: string;
 

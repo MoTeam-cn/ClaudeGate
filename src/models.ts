@@ -5,6 +5,7 @@
  * 这里只负责：别名归一、请求里的模型 id 认不认。
  */
 import { MODEL_ALIASES } from "./constants.ts";
+import { limitFor } from "./model-limits.ts";
 import type { Config, GatewayContext } from "./types.ts";
 import type { OpenAIModelEntry } from "./model-catalog.ts";
 
@@ -23,10 +24,24 @@ export function resolveModel(name: string | undefined, cfg: Config): string {
   return cfg.defaultModel;
 }
 
-/** /v1/models 的清单。永远读内存快照，不会为了这个请求出网 */
+/**
+ * /v1/models 的清单。永远读内存快照，不会为了这个请求出网。
+ *
+ * 每个模型附上配置里的上下文窗口与最大输出（没配就不带）。
+ * 客户端侧的用途：开了 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY 之后，
+ * 它会从这份清单里读窗口，从而按模型决定自动压缩线。
+ */
 export function listModels(ctx: GatewayContext): OpenAIModelEntry[] {
   ctx.modelCatalog.ensure();
-  return ctx.modelCatalog.list();
+  return ctx.modelCatalog.list().map((e) => {
+    const lim = limitFor(ctx.cfg, e.id);
+    if (!lim) return e;
+    return {
+      ...e,
+      context_window: lim.context,
+      ...(lim.maxOutput === null ? {} : { max_output_tokens: lim.maxOutput })
+    };
+  });
 }
 
 export function catalogIds(ctx: GatewayContext): string[] {
