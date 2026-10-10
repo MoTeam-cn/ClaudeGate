@@ -16,7 +16,7 @@ import { askedForClassifier, answeredByClassifier, createClassifierSniffer, logC
 import { checkKeyPolicy, sessionKeyOf } from "../middleware/auth.ts";
 import { checkModelAllowed } from "../models.ts";
 import { checkContext } from "../model-limits.ts";
-import { checkIdentity } from "../security/identity.ts";
+import { checkIdentity, systemDigest, systemTexts } from "../security/identity.ts";
 import { withBeta } from "../constants.ts";
 import { noteUpstream, noteUpstreamError } from "../pool/observe.ts";
 import { isUpstreamError } from "../types.ts";
@@ -98,7 +98,14 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
     if (ctx.cfg.identityMode !== "off" && auth.useClaudeFingerprint !== false) {
       const icheck = checkIdentity(body);
       if (!icheck.ok) {
-        log.warn("[" + (requestIdOf(res) ?? "-") + "] 身份校验失败：" + icheck.reason);
+        /*
+         * 把客户端实际发的 system 摘出来记日志 —— 判据失配时唯一的排查依据。
+         * 只在日志里，绝不回给客户端。
+         */
+        log.warn(
+          "[" + (requestIdOf(res) ?? "-") + "] 身份校验失败：" + icheck.reason +
+          " 实际收到 " + systemDigest(systemTexts(body))
+        );
         if (ctx.cfg.identityMode === "block") {
           if (tracker) {
             tracker.outcome = "blocked";

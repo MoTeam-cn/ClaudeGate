@@ -66,13 +66,32 @@ export function isWellFormedAttribution(text: string): boolean {
   );
 }
 
-/** 有没有一段正好等于身份行（允许首尾空白） */
+/**
+ * 有没有身份行。
+ *
+ * **用子串匹配，不要求整块相等。** 真客户端把身份行和日期行拼在**同一个文本块**里
+ * （日期行是单独拼的，二进制原文引用：`Today's date is ` + 日期），
+ * 早先写成整块相等，结果把真 Claude Code 自己挡在了外面（线上 403）。
+ * 子串匹配不会削弱判据 —— 想伪造的人本来就能把这一整句原样发过来。
+ */
 export function hasIdentityLine(texts: readonly string[]): boolean {
   for (const t of texts) {
-    const s = t.trim();
-    for (const line of IDENTITY_LINES) if (s === line) return true;
+    for (const line of IDENTITY_LINES) if (t.indexOf(line) !== -1) return true;
   }
   return false;
+}
+
+/**
+ * system 各段的摘要，**只用于日志**。
+ * 判据失配时得看得见客户端到底发了什么，否则只能猜。
+ * 绝不放进给客户端的错误响应里。
+ */
+export function systemDigest(texts: readonly string[], per = 120): string {
+  if (!texts.length) return "(system 为空)";
+  return texts
+    .slice(0, 4)
+    .map((t, i) => "#" + i + "[" + t.length + "] " + t.slice(0, per).replace(/\s+/g, " "))
+    .join(" | ");
 }
 
 export interface IdentityCheck {

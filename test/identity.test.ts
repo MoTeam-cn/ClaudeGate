@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createGateway } from "../src/server.ts";
-import { checkIdentity, IDENTITY_LINES } from "../src/security/identity.ts";
+import { checkIdentity, IDENTITY_LINES, systemDigest } from "../src/security/identity.ts";
 import { BILLING_HEADER_PREFIX } from "../src/fingerprint/attribution.ts";
 import { signGatewayToken } from "../src/tokens.ts";
 import { cleanupDir } from "./helpers/tmp.ts";
@@ -57,6 +57,15 @@ eq("身份行埋在中段也认",
   checkIdentity({ system: [TEST_BILLING, { type: "text", text: "别的东西" }, IDENTITY_LINES[2]], messages: [] }).ok, true);
 eq("身份行首尾带空白也认",
   checkIdentity({ system: [TEST_BILLING, "  " + IDENTITY_LINES[1] + "\n"], messages: [] }).ok, true);
+/* 线上那次 403 的形状：真客户端把身份行和日期行拼在同一块里 */
+eq("身份行与日期行同块也认",
+  checkIdentity({ system: [TEST_BILLING, IDENTITY_LINES[0] + "\n\nToday's date is 2026-10-10."], messages: [] }).ok, true);
+eq("身份行前面还有别的文字也认",
+  checkIdentity({ system: [TEST_BILLING, "前言\n" + IDENTITY_LINES[2]], messages: [] }).ok, true);
+eq("日期行在前、身份行在后也认",
+  checkIdentity({ system: [TEST_BILLING, "Today's date is 2026-10-10.\n" + IDENTITY_LINES[1]], messages: [] }).ok, true);
+eq("摘要里能看到客户端实际发了什么",
+  systemDigest(["abc", "def"]).indexOf("#0[3] abc") !== -1, true);
 eq("身份行只写一半不认",
   checkIdentity({ system: [TEST_BILLING, "You are Claude Code."], messages: [] }).ok, false);
 
