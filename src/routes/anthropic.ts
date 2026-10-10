@@ -92,6 +92,9 @@ export function createAnthropicRoutes(ctx: GatewayContext) {
      */
     if (ctx.cfg.contextGuard !== "off") {
       const ccheck = checkContext(ctx.cfg, model, JSON.stringify(body ?? {}));
+      if (ccheck.compaction) {
+        log.debug("[" + (requestIdOf(res) ?? "-") + "] 压缩请求，跳过上下文检查（约 " + ccheck.estimated + " tokens）");
+      }
       if (!ccheck.ok) {
         log.warn(
           "[" + (requestIdOf(res) ?? "-") + "] 上下文超限：约 " + ccheck.estimated +

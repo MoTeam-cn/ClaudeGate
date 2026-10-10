@@ -137,6 +137,23 @@ export function estimateInputTokens(text: string): number {
   return Math.ceil(ascii / 4 + wide / 1.5);
 }
 
+/**
+ * /compact 压缩请求的特征串。
+ *
+ * 压缩这件事本身就要把**整个超长上下文**发给上游 —— 如果连它也拦，
+ * 用户就被锁死了：上下文超限 → 压缩被拒 → 唯一出路是 /clear（上下文全丢）。
+ * 所以压缩请求永远放行，限制只拦正常对话。
+ *
+ * 这段提示词是从二进制里还原的（原文引用）：
+ *   Your task is to create a detailed summary of the conversation so far,
+ *   paying close attention to the user's explicit requests and your previous actions.
+ */
+const COMPACT_MARKER = "create a detailed summary of the conversation so far";
+
+export function isCompactionRequest(bodyText: string): boolean {
+  return bodyText.indexOf(COMPACT_MARKER) !== -1;
+}
+
 export interface ContextCheck {
   ok: boolean;
   /** 这次请求的输入 token 估算值 */
@@ -147,6 +164,8 @@ export interface ContextCheck {
   ceiling: number | null;
   /** 拒绝原因，ok 为 true 时是空串 */
   reason: string;
+  /** 这是 /compact 压缩请求，按设计跳过检查 */
+  compaction: boolean;
 }
 
 /**
@@ -156,10 +175,18 @@ export interface ContextCheck {
 export function checkContext(cfg: Config, model: unknown, bodyText: string): ContextCheck {
   const limit = limitFor(cfg, model);
   const estimated = estimateInputTokens(bodyText);
-  if (!limit) return { ok: true, estimated, limit: null, ceiling: null, reason: "" };
+  if (!limit) return { ok: true, estimated, limit: null, ceiling: null, reason: "", compaction: false };
+
+  /*
+   * 压缩请求放行。拦它等于把用户锁死 —— 上下文已经超了，压缩是唯一的自救手段，
+   * 这时候回 400 只会让人只能 /clear。压缩完上下文就小了，下一轮自然回到限制内。
+   */
+  if (isCompactionRequest(bodyText)) {
+    return { ok: true, estimated, limit, ceiling: null, reason: "", compaction: true };
+  }
 
   const ceiling = Math.floor(limit.context * (1 + cfg.contextHeadroom));
-  if (estimated <= ceiling) return { ok: true, estimated, limit, ceiling, reason: "" };
+  if (estimated <= ceiling) return { ok: true, estimated, limit, ceiling, reason: "", compaction: false };
 
   const pct = limit.context > 0 ? Math.round((estimated / limit.context) * 100) : 0;
   return {
@@ -167,6 +194,7 @@ export function checkContext(cfg: Config, model: unknown, bodyText: string): Con
     estimated,
     limit,
     ceiling,
+    compaction: false,
     reason:
       "这次请求的输入约 " + estimated + " tokens，已经超过 " + String(model) +
       " 的上下文窗口 " + limit.context + "（约 " + pct + "%，容差 " +

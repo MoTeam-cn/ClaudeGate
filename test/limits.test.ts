@@ -87,6 +87,17 @@ eq("没配的模型无论多大都放行", checkContext(cfg, "other", "a".repeat
 const noLimit = { modelLimits: {}, contextHeadroom: 0.1 } as unknown as Config;
 eq("完全没配时不限制", checkContext(noLimit, "test", "a".repeat(10000000)).ok, true);
 
+/* 压缩请求必须放行 —— 拦它等于把用户锁死 */
+const COMPACT_BODY = JSON.stringify({
+  model: "test", max_tokens: 32000,
+  system: "Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.",
+  messages: [{ role: "user", content: "a".repeat(120000 * 4) }]
+});
+eq("压缩请求被识别", checkContext(cfg, "test", COMPACT_BODY).compaction, true);
+eq("压缩请求即便远超窗口也放行", checkContext(cfg, "test", COMPACT_BODY).ok, true);
+eq("普通大请求不会被误判成压缩", checkContext(cfg, "test", over).compaction, false);
+eq("普通大请求仍然被拦", checkContext(cfg, "test", over).ok, false);
+
 /* ================= D. 接口 ================= */
 console.log("\n=== D. /v1/models 与拦截 ===");
 let upHits = 0;
@@ -137,6 +148,13 @@ ok("超限请求没有打到上游", upHits === hitsBefore, "upHits=" + upHits +
 const near = await request(port, "/v1/messages", { headers: h,
   body: { model: "claude-opus-5-5", max_tokens: 16, messages: [{ role: "user", content: "a".repeat(105000 * 4) }] } });
 eq("容差内（105%）放行", near.status, 200);
+
+/* 压缩请求走接口也要能过 */
+const compactReq = await request(port, "/v1/messages", { headers: h,
+  body: { model: "claude-opus-5-5", max_tokens: 16,
+    system: "Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.",
+    messages: [{ role: "user", content: "a".repeat(120000 * 4) }] } });
+eq("/compact 请求不被拦（能自救）", compactReq.status, 200);
 
 /* 没配的模型不限制 */
 const other = await request(port, "/v1/messages", { headers: h,
