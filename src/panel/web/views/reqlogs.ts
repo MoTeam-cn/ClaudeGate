@@ -46,6 +46,7 @@ function renderReqLogs(box){
     if(reqState.search) q += "&search="+encodeURIComponent(reqState.search);
     return CG.api("logs.requests?"+q).then(function(d){
       reqState.data = d;
+      if(!CG.shouldPaint(listHost, d)) return d;
       CG.clear(listHost);
       var rows = d.rows||[];
       var cols = [

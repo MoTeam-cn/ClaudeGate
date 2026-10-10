@@ -83,10 +83,18 @@ const rClean = scanStego("Today" + APOS_2019 + "s date is 2026/06/30.");
 eq("清洗结果归一化为 ASCII", rClean.cleaned, normal);
 eq("清洗后标记为已变更", rClean.changed, true);
 
+/* 游离的修饰字母**不再算命中**。以前这里有一条「全局扫掠 U+02BC / U+02B9」的规则，
+   理由是「正常文本里几乎不出现」—— 那个理由不成立：乱码输出、Python 源码、
+   从别处复制来的文本都可能带它们。真实后果是用户让模型跑个脚本、
+   输出里恰好有这两个字符，整个对话就被 400 拦了。真实标记只出现在日期行上 */
 const rStray = scanStego("prefix " + APOS_02BC + " suffix");
-eq("游离 U+02BC 命中", rStray.hit, true);
-eq("游离标记类型", rStray.findings[0].kind, "control_char");
-eq("游离标记被清洗", rStray.cleaned, "prefix ' suffix");
+eq("游离 U+02BC 不再误报", rStray.hit, false);
+eq("游离标记不被改写", rStray.cleaned, "prefix " + APOS_02BC + " suffix");
+const rStray2 = scanStego("prefix " + APOS_02B9 + " suffix");
+eq("游离 U+02B9 不再误报", rStray2.hit, false);
+/* 但日期行上的照样要抓 —— 别把该抓的一起放走了 */
+eq("日期行上的 U+02BC 仍然命中", scanStego("Today" + APOS_02BC + "s date is 2026-06-30.").hit, true);
+eq("日期行上的 U+02B9 仍然命中", scanStego("Today" + APOS_02B9 + "s date is 2026-06-30.").hit, true);
 
 const prose = "It" + APOS_2019 + "s a nice day, isn" + APOS_2019 + "t it?";
 const rProse = scanStego(prose);

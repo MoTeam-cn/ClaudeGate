@@ -43,7 +43,8 @@ var refreshing = false;
 function refresh(){
   if(refreshing) return;
   refreshing = true;
+  busy(true);
   var ps = refreshers.map(function(f){ return f(); });
-  Promise.all(ps).catch(function(e){ showErr(e); }).then(function(){ refreshing = false; });
+  Promise.all(ps).catch(function(e){ showErr(e); }).then(function(){ refreshing = false; busy(false); });
 }
 `;

@@ -39,6 +39,7 @@ function renderRtLogs(box){
     if(rtState.level) q += "&level="+encodeURIComponent(rtState.level);
     if(rtState.search) q += "&search="+encodeURIComponent(rtState.search);
     return CG.api("logs.runtime?"+q).then(function(d){
+      if(!CG.shouldPaint(listHost, d)) return d;
       CG.clear(listHost);
       var cols = [
         { key:"ts", label:"时间", sortable:true, render:function(r){ return CG.fmtTime(r.ts); } },

@@ -8,7 +8,7 @@ export const EXPORTS_JS = String.raw`
 /* ============ 导出给各视图用 ============ */
 window.CG = {
   api:api, toast:toast, showErr:showErr, dialog:dialog, confirmDialog:confirmDialog, promptDialog:promptDialog,
-  h:h, $:$, $$:$$, esc:esc, clear:clear, skeleton:skeleton, emptyState:emptyState, table:table, pager:pager,
+  h:h, $:$, $$:$$, esc:esc, clear:clear, paint:paint, shouldPaint:shouldPaint, busy:busy, skeleton:skeleton, emptyState:emptyState, table:table, pager:pager,
   go:go, onRefresh:onRefresh, refresh:refresh, fmtTime:fmtTime, fmtAgo:fmtAgo, fmtNum:fmtNum, fmtDur:fmtDur,
   lastData:lastData, getToken:function(){ return TOKEN; },
   setToken:setToken, clearToken:clearToken, askToken:askToken

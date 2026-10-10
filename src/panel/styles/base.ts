@@ -22,6 +22,22 @@ a:hover{color:var(--el-color-primary-light-3)}
 .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hidden{display:none!important}
 
+/* ============ 加载条 ============ */
+/* 刷新时不闪整页，只在顶部走一条细线。150ms 内回来的请求根本不会让它出现 */
+.cg-loadingbar{
+  position:fixed;top:0;left:0;right:0;height:2px;z-index:5000;
+  background:transparent;pointer-events:none;overflow:hidden;
+}
+.cg-loadingbar.is-on::after{
+  content:"";position:absolute;top:0;height:100%;width:30%;
+  background:var(--el-color-primary);
+  animation:cg-loadingbar 1s ease-in-out infinite;
+}
+@keyframes cg-loadingbar{
+  0%{left:-30%}
+  100%{left:100%}
+}
+
 /* ============ 布局 ============ */
 .cg-app{display:flex;min-height:100vh}
 .cg-side{

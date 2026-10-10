@@ -24,6 +24,9 @@ function renderAccounts(box){
   }
   CG.onRefresh(function(){
     return CG.api("accounts").then(function(list){
+      /* 数据没变就整块跳过。自动刷新每 15 秒一次，重建一遍表格会丢滚动位置、
+         关掉正在展开的下拉，看起来就是「抽搐」 */
+      if(!CG.shouldPaint(host, list)) return list;
       CG.clear(host);
       /*
        * 列布局的原则：

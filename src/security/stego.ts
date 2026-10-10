@@ -11,6 +11,12 @@
  *   U+2019 命中域名名单
  *   U+02BC 命中 AI 实验室关键词
  *   U+02B9 两者都命中
+ *
+ * **判定范围只限日期行。** 早先这里还有一步「全局扫掠 U+02BC / U+02B9」，
+ * 理由是「这两个码位在正常文本里几乎不出现」—— 那个理由不成立：
+ * 乱码输出、Python 源码、从别处复制来的文本都可能带它们。
+ * 结果是用户让模型跑个脚本，脚本输出里有这两个字符，整个对话就被 400 拦了。
+ * 真实标记只会出现在系统提示词的日期行上，所以只认那一处。
  */
 
 export type StegoKind = "apostrophe" | "date_separator" | "control_char";
@@ -42,9 +48,6 @@ const APOSTROPHE_MEANING: Readonly<Record<number, string>> = {
   0x02bc: "U+02BC 修饰字母撇号（命中 AI 实验室关键词）",
   0x02b9: "U+02B9 修饰字母角分符（两者都命中）"
 };
-
-/** 全局扫掠只针对这两个码位：它们在正常中英文文本里几乎不出现 */
-const RARE_MARKERS: readonly number[] = [0x02bc, 0x02b9];
 
 const DATE_RE_SOURCE =
   "Today(['\\u0027\\u2019\\u02bc\\u02b9])s date is (\\d{4})([-/])(\\d{1,2})([-/])(\\d{1,2})";
@@ -89,31 +92,16 @@ export function scanStego(text: string): StegoScanResult {
     }
   }
 
-  /* 2) 全局扫掠稀有标记 */
-  for (let i = 0; i < text.length; i++) {
-    const cp = text.codePointAt(i);
-    if (cp === undefined) continue;
-    if (RARE_MARKERS.includes(cp)) {
-      findings.push({
-        kind: "control_char",
-        index: i,
-        codepoint: cp,
-        meaning: APOSTROPHE_MEANING[cp] ?? "未知码位",
-        sample: sliceAround(text, i)
-      });
-      if (cp > 0xffff) i += 1;
-    }
-  }
-
   if (!findings.length) return { hit: false, findings, cleaned: text, changed: false };
 
-  /* 清洗：日期行归一化为纯 ASCII，稀有标记替换为普通撇号 */
-  let cleaned = text.replace(
+  /* 清洗：只动日期行本身，把它归一化成纯 ASCII。
+     以前这里还有一步「把全文的 U+02BC/U+02B9 换成普通撇号」——
+     那等于重写用户正文里合法的修饰字母，已经去掉了 */
+  const cleaned = text.replace(
     freshDateRe(),
     (_all: string, _ap: string, y: string, _sep: string, mo: string, _sep2: string, d: string) =>
       "Today's date is " + y + "-" + mo + "-" + d
   );
-  cleaned = cleaned.replace(/[\u02bc\u02b9]/g, "'");
 
   return { hit: true, findings, cleaned, changed: cleaned !== text };
 }

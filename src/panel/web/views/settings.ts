@@ -148,7 +148,7 @@ function renderSettings(box){
   box.appendChild(host);
   CG.onRefresh(function(){
     return CG.api("settings").then(function(s){
-      CG.clear(host);
+      CG.paint(host, ["guardMode","stegoMode","reqIdInResponse","injectMissing","logRetentionDays","runtimeLogMax"].map(function(k){ return s[k]; }).join("|"), function(host){
       var guard = CG.selectBox([
         { value:"strict", label:"strict（缺规范头直接 403）" },
         { value:"lenient", label:"lenient（缺头放行并告警）" },
@@ -193,6 +193,7 @@ function renderSettings(box){
       host.appendChild(modelCard());
       host.appendChild(adminKeyCard());
       return s;
+    });
     });
   });
 }

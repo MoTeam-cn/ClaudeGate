@@ -11,6 +11,7 @@ function renderKeys(box){
   box.appendChild(host);
   CG.onRefresh(function(){
     return CG.api("keys").then(function(list){
+      if(!CG.shouldPaint(host, list)) return list;
       CG.clear(host);
       var cols = [
         { key:"name", label:"名称", sortable:true,

@@ -12,7 +12,7 @@ function renderOverview(box){
   box.appendChild(host);
   CG.onRefresh(function(){
     return CG.api("overview").then(function(d){
-      CG.clear(host);
+      CG.paint(host, d, function(host){
       var p = d.pool;
       var grid = h("div",{class:"cg-stats"});
       grid.appendChild(stat("号池总数", CG.fmtNum(p.total)));
@@ -57,6 +57,7 @@ function renderOverview(box){
         host.appendChild(card("冷却中的账号", accountListTable(p.coolingList, "cooling")));
       }
       return d;
+    });
     });
   });
 }
