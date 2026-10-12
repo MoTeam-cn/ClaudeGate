@@ -28,128 +28,17 @@ import path from "node:path";
 import { MODEL_ALIASES, MODEL_CATALOG, PROD } from "./constants.ts";
 import { requestRaw } from "./net/request.ts";
 import type { Config, Logger } from "./types.ts";
-
-export interface CatalogEntry {
-  /** 家族 id，比如 claude-opus-5 */
-  id: string;
-  label: string;
-  family: string;
-  /** 发给上游的规范 id；老模型带日期后缀 */
-  firstParty: string;
-}
-
-export type CatalogSource = "builtin" | "remote" | "cache";
-
-export interface ModelCatalogState {
-  entries: CatalogEntry[];
-  source: CatalogSource;
-  /** 远端拉取成功的时间；从内置清单起步时为 null */
-  fetchedAt: number | null;
-  /** 目录自带的版本号（远端文档里有 version 字段） */
-  version: number | null;
-  error: string | null;
-}
-
-export interface OpenAIModelEntry {
-  id: string;
-  object: "model";
-  created: number;
-  owned_by: string;
-  /** 非标准字段，方便面板/客户端看出这是什么档位 */
-  display_name?: string;
-  family?: string;
-  /**
-   * 上下文窗口与最大输出。来自 MODEL_LIMITS 配置，没配就不带这两个字段。
-   * 客户端开了 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY 时会读它，
-   * 从而按模型决定自动压缩线 —— 这是比每台机器配
-   * CLAUDE_CODE_AUTO_COMPACT_WINDOW 更干净的那条路。
-   */
-  context_window?: number;
-  max_output_tokens?: number;
-}
-
-export interface ModelCatalogHandle {
-  /** 当前快照。永远同步返回，不出网 */
-  get(): ModelCatalogState;
-  /** 懒加载：过期就在后台刷，立即返回当前快照 */
-  ensure(): ModelCatalogState;
-  /** 强制刷新，等结果 */
-  refresh(): Promise<ModelCatalogState>;
-  list(): OpenAIModelEntry[];
-  /** 这个模型 id 认不认（别名、日期后缀、[1m] 后缀都算过） */
-  accepts(model: string | undefined | null): boolean;
-  /** 解析成目录里的条目；认不出来返回 null */
-  resolve(model: string | undefined | null): CatalogEntry | null;
-  /** 正在刷新？ */
-  refreshing(): boolean;
-  /** 设置隐藏清单（面板里勾掉的那些）。传进来的 id 会归一后再比 */
-  setDisabled(ids: string[]): void;
-  /** 当前隐藏清单（归一后的 key） */
-  disabled(): string[];
-  /** 目录里全部模型，含被隐藏的 */
-  all(): CatalogEntry[];
-  /** 这个模型是不是被隐藏了 */
-  isHidden(id: string): boolean;
-}
-
-/** Claude Code 就是这么比的：去掉尾部 -YYYYMMDD */
-function stripDate(v: string): string {
-  return v.replace(/-\d{8}$/, "");
-}
-
-/** 去掉 1M 上下文标记（Claude Code 的 claude-opus-5[1m] 这种写法），再统一小写 */
-export function normalizeModelId(raw: string): string {
-  return String(raw ?? "").trim().toLowerCase().replace(/\[1m\]$/, "");
-}
-
-function entryOf(id: string, label: string, family: string, firstParty: string): CatalogEntry {
-  return { id, label, family, firstParty };
-}
-
-/** 内置兜底清单：跟 Claude Code 2.1.293 里编译进去的那份对齐 */
-export function builtinEntries(): CatalogEntry[] {
-  return MODEL_CATALOG.map((m) => entryOf(m.id, m.label, m.family, m.firstParty));
-}
+import { builtinEntries, normalizeModelId, parseCatalog, stripDate } from "./model-catalog/builtin.ts";
+import type { CatalogEntry, ModelCatalogHandle, ModelCatalogState } from "./model-catalog/types.ts";
+export * from "./model-catalog/types.ts";
+export * from "./model-catalog/builtin.ts";
 
 /**
- * 从远端文档里把模型抠出来。
- * 目录的形状可能变，所以不写死路径 —— 深挖任何带 claude-* id 的对象。
+ * 模型目录的句柄与刷新逻辑。
+ *
+ * 形状与纯函数拆在 model-catalog/ 下（types / builtin），
+ * 这里留需要状态的 createModelCatalog —— 单文件曾达 337 行。
  */
-export function parseCatalog(raw: unknown): { entries: CatalogEntry[]; version: number | null } {
-  const found = new Map<string, CatalogEntry>();
-  let version: number | null = null;
-
-  const visit = (v: unknown, depth: number): void => {
-    if (depth > 8 || v === null || typeof v !== "object") return;
-    if (Array.isArray(v)) {
-      for (const item of v) visit(item, depth + 1);
-      return;
-    }
-    const o = v as Record<string, unknown>;
-    if (typeof o.version === "number" && version === null) version = o.version;
-
-    const id = typeof o.id === "string" ? o.id : null;
-    if (id && /^claude-[a-z0-9-]+$/i.test(id)) {
-      const providers = o.provider_ids && typeof o.provider_ids === "object"
-        ? (o.provider_ids as Record<string, unknown>)
-        : null;
-      const firstParty = providers && typeof providers.first_party === "string"
-        ? providers.first_party
-        : (typeof o.first_party === "string" ? o.first_party : id);
-      const label =
-        (typeof o.display_name === "string" && o.display_name) ||
-        (typeof o.displayName === "string" && o.displayName) ||
-        (typeof o.name === "string" && o.name) ||
-        id;
-      const family = typeof o.family === "string" && o.family ? o.family : id.split("-")[1] ?? "other";
-      if (!found.has(id)) found.set(id, entryOf(id, label, family, firstParty));
-    }
-    for (const k of Object.keys(o)) visit(o[k], depth + 1);
-  };
-
-  visit(raw, 0);
-  return { entries: [...found.values()], version };
-}
 
 export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle {
   const cacheFile = path.join(cfg.dataDir, "model-catalog.json");
@@ -334,3 +223,4 @@ export function createModelCatalog(cfg: Config, log: Logger): ModelCatalogHandle
 
 /** 默认目录地址（PROD 里那份，测试可以覆盖） */
 export const DEFAULT_CATALOG_URL = PROD.MODEL_CATALOG_URL;
+
