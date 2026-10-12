@@ -49,7 +49,13 @@ function firstNonEmpty(values: Array<string | undefined>): string {
 
 export function loadConfig(env: Env): Config {
   const rawMode = String(env.GUARD_MODE ?? "strict").toLowerCase();
-  const guardMode: GuardMode = (GUARD_MODES as readonly string[]).includes(rawMode)
+  /** 请求头规范集合的施加方式；非法值退回 canonical（默认最稳的那个） */
+function headerModeOf(raw: unknown): "canonical" | "union" | "off" {
+  const v = String(raw ?? "union").toLowerCase();
+  return v === "canonical" || v === "off" ? v : "union";
+}
+
+const guardMode: GuardMode = (GUARD_MODES as readonly string[]).includes(rawMode)
     ? (rawMode as GuardMode)
     : "strict";
 
@@ -139,6 +145,8 @@ export function loadConfig(env: Env): Config {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
     injectMissing: bool(env.INJECT_MISSING, false),
+    /* 请求头规范集合：canonical=beta 统一（最稳）/ union=并集（不丢功能）/ off */
+    headerMode: headerModeOf(env.HEADER_MODE),   /* 默认 union，见 canonical.ts */
 
     stegoMode,
     reqIdInResponse,

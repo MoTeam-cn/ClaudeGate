@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 /**
- * 上游请求头保真度测试：Claude Code 发什么，网关就得转什么。
+ * 上游请求头保真度测试。
+ *
+ * 契约分两半：
+ *   - **客户端原有的头**：值不动、顺序不动（顺序本身是可观测的指纹）
+ *   - **规范集合**：客户端没带的头由网关补齐（X-Stainless-* 等），
+ *     beta 取「规范集合 ∪ 客户端带的」—— 见 src/fingerprint/canonical.ts
+ *
+ * 真客户端本来就带齐 21 个头，所以对真客户端这两半是重合的；
+ * 第三方客户端只带几个，补齐之后才对上游长得像 Claude Code。
  * 运行：node test/headers.test.ts
  */
 import http from "node:http";
@@ -11,6 +19,7 @@ import path from "node:path";
 
 import { createGateway } from "../src/server.ts";
 import { mergeBeta } from "../src/oauth.ts";
+import { CANONICAL_BETA } from "../src/fingerprint/canonical.ts";
 import { isGuardExempt } from "../src/guard.ts";
 import { signGatewayToken } from "../src/tokens.ts";
 import { request, ccSystem } from "./helpers/client.ts";
@@ -108,7 +117,10 @@ ok("三个 Claude Code 标志一个不少",
   gotBeta.includes("claude-code-20250219") && gotBeta.includes("interleaved-thinking-2025-05-14") && gotBeta.includes("tool-search-tool-2025-10-19"),
   gotBeta);
 ok("补上了 oauth 标志", gotBeta.includes("oauth-2025-04-20"), gotBeta);
-eq("客户端顺序保持在前", gotBeta.split(",").slice(0, 3).join(","), ccBetas);
+/* 规范集合现在排在最前，所以不能再断言「客户端那三个在前」——
+   改为断言客户端的 beta 一个不少（顺序按规范集合走，上游不关心顺序） */
+ok("客户端带的 beta 一个不少", ccBetas.split(",").every((b) => gotBeta.split(",").includes(b)), gotBeta);
+ok("规范集合的 beta 也在", CANONICAL_BETA.split(",").every((b) => gotBeta.split(",").includes(b)), gotBeta);
 eq("accept 不被改写", last?.headers["accept"], "application/json");
 eq("user-agent 原样", last?.headers["user-agent"], "claude-cli/2.1.293 (external, sdk-cli)");
 eq("x-app 原样", last?.headers["x-app"], "cli");
@@ -132,7 +144,8 @@ const third = seen[seen.length - 1];
 ok("UA 被换成 Claude Code", String(third?.headers["user-agent"]).startsWith("claude-cli/"), third?.headers["user-agent"]);
 eq("x-app 补上", third?.headers["x-app"], "cli");
 ok("session-id 补上", /^[0-9a-f-]{36}$/.test(String(third?.headers["x-claude-code-session-id"])), third?.headers["x-claude-code-session-id"]);
-eq("beta 补上", third?.headers["anthropic-beta"], "claude-code-20250219");
+/* 补的是完整规范集合（11 个值），不是以前那一个 —— 一个值的列表比真客户端短 10 个，是破绽 */
+eq("beta 补上（完整规范集合）", third?.headers["anthropic-beta"], CANONICAL_BETA);
 
 console.log("\n=== D. 请求头顺序必须原样保留 ===");
 /* 顺序本身是可观测的指纹。这里按一个刻意安排的顺序发，断言上游收到的顺序一致 */
@@ -182,8 +195,9 @@ const ORDER = [
 
   const last = seen[seen.length - 1];
   const gotOrder = (last?.rawHeaders ?? []).filter((_, i) => i % 2 === 0).map((x) => x.toLowerCase());
-  eq("上游收到的头个数一致", gotOrder.length, ORDER.length);
-  eq("请求头顺序逐位一致", gotOrder.join(","), ORDER.join(","));
+  /* 客户端原有的头必须按原顺序在前；规范集合补的头跟在后面 */
+  eq("客户端原有头顺序未变", gotOrder.slice(0, ORDER.length).join(","), ORDER.join(","));
+  ok("规范集合的补充头跟在后面", gotOrder.length >= ORDER.length, gotOrder.join(","));
   eq("凭据头仍在第 2 位", gotOrder[1], "authorization");
   eq("凭据已换成号的令牌", last?.headers["authorization"], "Bearer oauth-access");
   ok("没有 transfer-encoding", last?.headers["transfer-encoding"] === undefined, String(last?.headers["transfer-encoding"]));

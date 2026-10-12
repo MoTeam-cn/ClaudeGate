@@ -1,0 +1,29 @@
+﻿feat: 请求头规范集合 —— 把「真客户端长什么样」补成所有客户端都一致
+
+用户指出的问题：网关有一部分头是原样转发的。如果有人版本号不同，
+它生成的请求头（尤其是 anthropic-beta 列表）原样过去，同一个 device_id
+上就会出现 beta 列表的回退 —— 真机自动更新只会加不会减，不可能。
+
+拿到真客户端抓包（docs/anthropic-detection.md，Claude Code 2.1.293 一次
+POST 收到 21 个头）后发现两个更大的破绽：
+- 真客户端发 11 个 anthropic-beta 值，而 CC_BETA 只有其中 1 个。
+  网关只在客户端没带 beta 时注入那 1 个 —— 比真客户端短 10 个值。
+- X-Stainless-* 共 8 个加 anthropic-dangerous-direct-browser-access，
+  真客户端恒发；第三方客户端不带，漏掉就是差异。
+
+新增 src/fingerprint/canonical.ts：规范集合（11 个 beta + 11 个固定值头），
+applyCanonicalHeaders 在 upstream.ts 组头的最后一步施加。
+
+HEADER_MODE 三档：
+- union（默认）：规范集合当**地板**，所有请求都至少有那 11 个值，
+  同时不丢客户端与网关自己带的能力。
+- canonical：beta 完全统一，代价是丢客户端自己的能力 beta。
+  但**保留 oauth- 前缀的**——丢了订阅 OAuth 凭据直接报错，这条把测试打红过。
+- off：不碰。
+
+客户端原有的头：值不动、顺序不动（顺序本身是可观测的指纹），
+规范集合补的跟在后面。
+
+test/headers.test.ts 更新契约：原来断言「上游只看到客户端发的 13 个头」，
+现在断言「客户端原有头按原顺序在前 + 规范集合的补充头跟在后面」，
+beta 断言从「补上那 1 个」改为「补上完整规范集合」。50 项全过。

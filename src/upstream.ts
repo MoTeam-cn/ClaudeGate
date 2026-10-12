@@ -9,6 +9,7 @@ import { PassThrough, Readable, Transform } from "node:stream";
 import { HOP_BY_HOP, RESPONSE_DROP_HEADERS, DECODED_ENCODINGS, ANTHROPIC_VERSION, AUTH_HEADER_NAMES } from "./constants.ts";
 import { mergeBeta, upstreamAuthHeaders } from "./oauth.ts";
 import { injectCanonicalHeaders, injectFingerprintHeaders, fingerprintSeed } from "./guard.ts";
+import { applyCanonicalHeaders } from "./fingerprint/canonical.ts";
 import { headerValue } from "./utils.ts";
 import { connectViaProxy } from "./net/proxy.ts";
 import { fetchUpstream, fetchTransportUsable, fetchSupportsProxy } from "./net/fetch.ts";
@@ -394,6 +395,16 @@ export function buildUpstreamHeaders(
 
     if (!existingKey) headers[ak] = authHeaders[ak];
   }
+
+  /*
+   * 规范集合：把请求头补齐成「真客户端该有的样子」。
+   *
+   * 必须在最后 —— 前面的凭据头与 beta 并集都落定之后才能统一。
+   * 解决的问题：不同版本的客户端带不同的 beta 列表，原样转发会让同一个
+   * device_id 上出现 beta 列表回退（真机不可能）；第三方客户端则缺
+   * X-Stainless-* 与 anthropic-dangerous-direct-browser-access。
+   */
+  headers = applyCanonicalHeaders(headers, { mode: cfg.headerMode });
 
   if (!headers["content-type"] && !headers["Content-Type"]) headers["content-type"] = "application/json";
   return headers;

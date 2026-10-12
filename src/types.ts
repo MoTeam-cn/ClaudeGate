@@ -99,6 +99,8 @@ export interface Config {
   guardMode: GuardMode;
   guardRequire: string[];
   injectMissing: boolean;
+  /** 请求头规范集合的施加方式，见 fingerprint/canonical.ts */
+  headerMode: "union" | "canonical" | "off";
 
   stegoMode: StegoMode;
   reqIdInResponse: ReqIdMode;
