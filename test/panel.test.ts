@@ -51,7 +51,9 @@ const src = (rel: string) => readPanelTree(path.join(here, "..", "src", "panel",
 /* ================= 渲染产物 ================= */
 /* 面板「设备指纹」列读的是 a.deviceId。publicAccount 漏传过这个字段，
    于是日志里写着「device_id 已按号固定」，面板却永远显示「待生成」。 */
-const panelApiSrc = src("api.ts");
+/* 读整个 api/ 目录而不是单个文件 —— 面板 API 按域拆开之后，
+   盯着某一个文件名会在下次拆分时再次误报。测试只做 includes/正则，拼接顺序无关 */
+const panelApiSrc = src("api");
 const pubStart = panelApiSrc.indexOf("function publicAccount");
 const pubBlock = panelApiSrc.slice(pubStart, panelApiSrc.indexOf("function publicKey"));
 ok("设备指纹要传给前端", pubBlock.indexOf("deviceId:") !== -1, pubBlock.slice(0, 60));
@@ -135,7 +137,7 @@ ok("设置页守卫选项用真实枚举 lenient", viewsSrc.includes('value:"len
 /* 注意别写太宽：运行日志级别筛选里的 warn 是合法的日志级别，不是守卫枚举 */
 ok("守卫不再有会被静默忽略的 warn 选项", !viewsSrc.includes('value:"warn", label:"warn（只记日志）"'));
 /* Key 重置：换密钥而不是逼人删了重建 */
-ok("面板有 key.reset 动作", src("api.ts").includes('case "key.reset"'));
+ok("面板有 key.reset 动作", src("api").includes('case "key.reset"'));
 ok("Key 行有重置按钮", viewsSrc.includes("重置密钥"));
 ok("store 暴露 resetSecret", src("../store/apikeys.ts").includes("resetSecret"));
 /*
@@ -183,7 +185,7 @@ ok("脚本里没有模板字面量（会和外层冲突）", !js.includes(String
 /* ================= 前后端 action 契约 ================= */
 console.log("\n=== C. action 契约 ===");
 const clientSrc = src("web");
-const apiSrc = src("api.ts");
+const apiSrc = src("api");
 
 const called = new Set<string>();
 for (const m of clientSrc.matchAll(/CG\.api\(\s*"([^"]+)"/g)) {
