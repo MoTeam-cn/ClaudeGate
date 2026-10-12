@@ -1,6 +1,11 @@
 import { buildUpstreamHeaders, upstreamRequest } from "./upstream.ts";
 import { rewriteUserId } from "./userid.ts";
-import { injectAttributionHeader, clientVersion } from "./fingerprint/attribution.ts";
+import {
+  injectAttributionHeader,
+  clientVersion,
+  setAttributionVersion,
+  rewriteUserAgentVersion
+} from "./fingerprint/attribution.ts";
 import { CC_VERSION } from "./constants.ts";
 import crypto from "node:crypto";
 import { collect, decodeStream } from "./upstream.ts";
@@ -141,17 +146,41 @@ async function sendOnce(
    * 不是 HTTP 头，是 body 里的一段文本，所以必须在这里改 body。
    * 缺了它上游看到的就不是一个 Claude Code 客户端。
    */
+  /*
+   * 版本号：按号固定，且只升不降。
+   *
+   * device_id 是按号固定的（一个号 = 一台设备），版本号如果跟着客户端走，
+   * 同一个 device_id 上就会出现 2.1.300 -> 2.1.290 -> 2.1.300 这种
+   * **物理上不可能**的模式 —— 真机自动更新只会往前走，没人会退回旧版。
+   * 多人共用一个号池时必然撞上，所以钉在号上。
+   */
+  const clientVer = clientVersion(req.headers["user-agent"]);
+  const pinnedVer = account ? ctx.accounts.ensureCcVersion(account.id, clientVer) : "";
+  const ver = pinnedVer || clientVer || CC_VERSION;
+
   if (cfg.attributionHeader && body && typeof body === "object" && !Array.isArray(body)) {
     const b = body as Record<string, unknown>;
     if (Array.isArray(b.messages) || b.system !== undefined) {
       /*
-       * 版本号优先取客户端 UA 里的那个，取不到才退回常量。
-       * 这样官方升级 Claude Code 时网关不用跟着改 —— 客户端报什么版本就用什么版本。
-       * 客户端自己带了归因头时 injectAttributionHeader 直接返回 false，
-       * 那条路径连这个值都用不上（原样转发客户端自己那份）。
+       * 客户端没带归因头 -> 按钉住的版本注入一份。
+       * 客户端自己带了 -> 把 cc_version 段改成钉住的那个，**指纹一起重算**
+       * （指纹 = sha256(盐 + 采样 + 版本)，只换版本不换指纹就自相矛盾）。
+       * 客户端的 entrypoint 保持不动。
        */
-      const ver = clientVersion(req.headers["user-agent"]) ?? CC_VERSION;
-      injectAttributionHeader(b, ver, { entrypoint: cfg.attributionEntrypoint });
+      const injected = injectAttributionHeader(b, ver, { entrypoint: cfg.attributionEntrypoint });
+      if (!injected) setAttributionVersion(b, ver);
+    }
+  }
+
+  /*
+   * 版本号一旦被钉住，UA 必须跟着改 —— 否则 cc_version 与 user-agent
+   * 报的是两个版本，又成了新的矛盾。后缀（external, cli）原样保留。
+   */
+  if (clientVer && ver !== clientVer) {
+    for (const k of Object.keys(headers)) {
+      if (k.toLowerCase() !== "user-agent") continue;
+      const cur = headers[k];
+      if (typeof cur === "string") headers[k] = rewriteUserAgentVersion(cur, ver);
     }
   }
 

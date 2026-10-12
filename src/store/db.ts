@@ -134,6 +134,8 @@ const SCHEMA = [
 /** 老库缺列时补列；SQLite 没有 ADD COLUMN IF NOT EXISTS，只能先查表结构 */
 const ADDITIONS: ReadonlyArray<readonly [string, string, string]> = [
   ["accounts", "device_id", "TEXT"],
+  /* 这个号钉住的 Claude Code 版本号，单调递增（只升不降） */
+  ["accounts", "cc_version", "TEXT"],
   ["accounts", "exhausted_until", "INTEGER"],
   ["accounts", "exhausted_reason", "TEXT"],
   ["accounts", "usage_json", "TEXT"],

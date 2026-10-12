@@ -435,6 +435,8 @@ export interface Account {
   accountUuid: string | null;
   /** 这个号专属的 device_id，首次用到时生成，之后固定不变 */
   deviceId: string | null;
+  /** 这个号钉住的 Claude Code 版本号，单调递增（只升不降） */
+  ccVersion: string | null;
   email: string | null;
   status: AccountStatus;
   lastError: string | null;

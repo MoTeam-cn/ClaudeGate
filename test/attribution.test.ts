@@ -17,7 +17,11 @@ import {
   buildAttributionHeader,
   isAttributionBlock,
   injectAttributionHeader,
-  clientVersion
+  clientVersion,
+  compareVersion,
+  rewriteUserAgentVersion,
+  setAttributionVersion,
+  pickVersion
 } from "../src/fingerprint/attribution.ts";
 
 let pass = 0;
@@ -63,6 +67,50 @@ ok("同版本同消息指纹稳定",
 /* 版本号进头文本 */
 ok("头里带的是传进去的版本",
   buildAttributionHeader([], "9.9.9").indexOf("9.9.9") !== -1);
+
+/* ============ A3. 版本号单调递增 ============ */
+console.log("\n=== A3. 版本号单调递增 ===");
+ok("版本比较：新的大", compareVersion("2.1.300", "2.1.290") > 0);
+ok("版本比较：旧的小", compareVersion("2.1.290", "2.1.300") < 0);
+ok("版本比较：相同为 0", compareVersion("2.1.293", "2.1.293") === 0);
+ok("版本比较：主版本优先", compareVersion("3.0.0", "2.99.99") > 0);
+ok("版本比较：无法解析按相同处理", compareVersion("abc", "2.1.0") === 0);
+eq("首次见到就用它", pickVersion(null, "2.1.293").use, "2.1.293");
+eq("首次见到要落库", pickVersion(null, "2.1.293").update, true);
+eq("升级就跟着升", pickVersion("2.1.290", "2.1.300").use, "2.1.300");
+eq("升级要落库", pickVersion("2.1.290", "2.1.300").update, true);
+/* 这一条就是这次修的东西：多人共用号池时不能出现版本回退 */
+eq("降级保持原值", pickVersion("2.1.300", "2.1.290").use, "2.1.300");
+eq("降级不落库", pickVersion("2.1.300", "2.1.290").update, false);
+eq("相同保持", pickVersion("2.1.293", "2.1.293").use, "2.1.293");
+eq("相同不落库", pickVersion("2.1.293", "2.1.293").update, false);
+eq("客户端没带 UA 时只读", pickVersion("2.1.293", null).use, "2.1.293");
+eq("客户端没带 UA 时不写", pickVersion("2.1.293", null).update, false);
+eq("都没版本号就是空", pickVersion(null, null).use, "");
+
+/* UA 改写：只换版本，后缀原样 */
+eq("UA 换版本保留后缀",
+  rewriteUserAgentVersion("claude-cli/2.1.290 (external, cli)", "2.1.300"),
+  "claude-cli/2.1.300 (external, cli)");
+eq("UA 换版本认 sdk-cli",
+  rewriteUserAgentVersion("claude-cli/2.1.290 (external, sdk-cli)", "2.1.300"),
+  "claude-cli/2.1.300 (external, sdk-cli)");
+eq("非 Claude UA 原样不动",
+  rewriteUserAgentVersion("curl/8.0", "2.1.300"), "curl/8.0");
+
+/* 归因头版本改写：版本与指纹必须一起换 */
+const hdrBody = {
+  messages: [{ role: "user", content: "hello world" }],
+  system: [{ type: "text", text: buildAttributionHeader([{ role: "user", content: "hello world" }], "2.1.290") }]
+};
+const before = (hdrBody.system[0] as { text: string }).text;
+ok("改写返回 true", setAttributionVersion(hdrBody, "2.1.300") === true);
+const after = (hdrBody.system[0] as { text: string }).text;
+ok("版本段换成了新版本", after.indexOf("2.1.300") !== -1 && after.indexOf("2.1.290") === -1);
+ok("指纹跟着重算",
+  after.indexOf(attributionFingerprint([{ role: "user", content: "hello world" }], "2.1.300")) !== -1);
+ok("前缀没被动", after.indexOf(BILLING_HEADER_PREFIX) !== -1);
+ok("没归因头时返回 false", setAttributionVersion({ messages: [] }, "2.1.300") === false);
 
 /* ============ B. 采样与指纹 ============ */
 console.log("\n=== B. 采样与指纹 ===");

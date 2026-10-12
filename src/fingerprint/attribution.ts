@@ -90,6 +90,75 @@ export function clientVersion(userAgent: unknown): string | null {
   return m ? (m[1] ?? null) : null;
 }
 
+/** 比较两个 x.y.z 版本号。a 比 b 新返回正数，相同返回 0，无法比较返回 0 */
+export function compareVersion(a: string, b: string): number {
+  const pa = String(a).split(".").map((x) => parseInt(x, 10));
+  const pb = String(b).split(".").map((x) => parseInt(x, 10));
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i];
+    const y = pb[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+/**
+ * 把 UA 里的版本号换掉，其余原样保留（包括 (external, cli) 这种后缀）。
+ * 换不动就原样返回。
+ */
+export function rewriteUserAgentVersion(ua: string, version: string): string {
+  return String(ua).replace(/^(claude-(?:cli|code)\/)\d+\.\d+\.\d+/i, "$1" + version);
+}
+
+/**
+ * 版本号单调递增的决策。**纯函数**，好测。
+ *
+ * 真机自动更新只会往前走，没人会退回旧版 —— 所以版本号只升不降。
+ * 返回 use = 这次该报给上游的版本，update = 要不要落库。
+ */
+export function pickVersion(
+  stored: string | null,
+  seen: string | null
+): { use: string; update: boolean } {
+  if (!seen) return { use: stored ?? "", update: false };
+  if (!stored) return { use: seen, update: true };
+  if (compareVersion(seen, stored) > 0) return { use: seen, update: true };
+  return { use: stored, update: false };
+}
+
+/** 归因头里 cc_version 段的值：版本.三位指纹 */
+function versionSegment(messages: unknown, version: string): string {
+  return version + "." + attributionFingerprint(messages, version);
+}
+
+/**
+ * 把归因头里的 cc_version 段换成指定版本，**指纹一起重算**。
+ *
+ * 为什么必须重算：指纹 = sha256(盐 + 采样 + 版本)，版本是入参之一。
+ * 只换版本不换指纹，两者就自相矛盾 —— 上游重算一次就露馅。
+ */
+export function setAttributionVersion(body: unknown, version: string): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const map = body as Record<string, unknown>;
+  const sys = map.system;
+  const blocks: unknown[] = Array.isArray(sys) ? sys : sys === undefined ? [] : [sys];
+  for (const blk of blocks) {
+    if (!blk || typeof blk !== "object") continue;
+    const o = blk as Record<string, unknown>;
+    if (typeof o.text !== "string" || !isAttributionBlock(o)) continue;
+    const text = o.text;
+    const start = text.indexOf(K_VERSION);
+    if (start === -1) return false;
+    const valueStart = start + K_VERSION.length;
+    const end = text.indexOf(K_SEMI, valueStart);
+    if (end === -1) return false;
+    o.text = text.slice(0, valueStart) + versionSegment(map.messages, version) + text.slice(end);
+    return true;
+  }
+  return false;
+}
+
 /** 取第一条非 meta 的 user 文本。对应二进制的 moe() */
 export function firstUserText(messages: unknown): string {
   if (!Array.isArray(messages)) return "";
