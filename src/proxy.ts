@@ -1,6 +1,6 @@
 import { buildUpstreamHeaders, upstreamRequest } from "./upstream.ts";
 import { rewriteUserId } from "./userid.ts";
-import { injectAttributionHeader } from "./fingerprint/attribution.ts";
+import { injectAttributionHeader, clientVersion } from "./fingerprint/attribution.ts";
 import { CC_VERSION } from "./constants.ts";
 import crypto from "node:crypto";
 import { collect, decodeStream } from "./upstream.ts";
@@ -144,7 +144,14 @@ async function sendOnce(
   if (cfg.attributionHeader && body && typeof body === "object" && !Array.isArray(body)) {
     const b = body as Record<string, unknown>;
     if (Array.isArray(b.messages) || b.system !== undefined) {
-      injectAttributionHeader(b, CC_VERSION, { entrypoint: cfg.attributionEntrypoint });
+      /*
+       * 版本号优先取客户端 UA 里的那个，取不到才退回常量。
+       * 这样官方升级 Claude Code 时网关不用跟着改 —— 客户端报什么版本就用什么版本。
+       * 客户端自己带了归因头时 injectAttributionHeader 直接返回 false，
+       * 那条路径连这个值都用不上（原样转发客户端自己那份）。
+       */
+      const ver = clientVersion(req.headers["user-agent"]) ?? CC_VERSION;
+      injectAttributionHeader(b, ver, { entrypoint: cfg.attributionEntrypoint });
     }
   }
 

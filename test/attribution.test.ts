@@ -16,7 +16,8 @@ import {
   attributionFingerprint,
   buildAttributionHeader,
   isAttributionBlock,
-  injectAttributionHeader
+  injectAttributionHeader,
+  clientVersion
 } from "../src/fingerprint/attribution.ts";
 
 let pass = 0;
@@ -41,6 +42,27 @@ eq("跳过 meta", firstUserText([{ role: "user", content: "skip", isMeta: true }
 eq("跳过 assistant", firstUserText([{ role: "assistant", content: "a" }, { role: "user", content: "u" }]), "u");
 eq("没有 user 就空", firstUserText([{ role: "assistant", content: "a" }]), "");
 eq("不是数组就空", firstUserText(null), "");
+
+/* ============ A2. 客户端版本号 ============ */
+console.log("\n=== A2. 客户端版本号 ===");
+eq("claude-cli 抠出版本", clientVersion("claude-cli/2.1.293 (external, cli)"), "2.1.293");
+eq("claude-code 也认", clientVersion("claude-code/2.0.1"), "2.0.1");
+eq("大小写不敏感", clientVersion("Claude-CLI/3.4.5"), "3.4.5");
+eq("只取三位数字", clientVersion("claude-cli/2.1.293-beta.1"), "2.1.293");
+eq("别的 UA 返回 null", clientVersion("python-requests/2.31"), null);
+eq("curl 返回 null", clientVersion("curl/8.0"), null);
+eq("非字符串返回 null", clientVersion(undefined), null);
+eq("空串返回 null", clientVersion(""), null);
+/* 版本号参与指纹：同消息、不同版本必须得到不同指纹 */
+ok("版本号参与指纹",
+  attributionFingerprint([{ role: "user", content: "hello world" }], "2.1.293") !==
+  attributionFingerprint([{ role: "user", content: "hello world" }], "2.2.0"));
+ok("同版本同消息指纹稳定",
+  attributionFingerprint([{ role: "user", content: "hello world" }], "2.1.293") ===
+  attributionFingerprint([{ role: "user", content: "hello world" }], "2.1.293"));
+/* 版本号进头文本 */
+ok("头里带的是传进去的版本",
+  buildAttributionHeader([], "9.9.9").indexOf("9.9.9") !== -1);
 
 /* ============ B. 采样与指纹 ============ */
 console.log("\n=== B. 采样与指纹 ===");

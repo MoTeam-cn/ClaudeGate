@@ -73,6 +73,23 @@ export const HEADER_KEYS = {
   space: SP
 } as const;
 
+/**
+ * 从客户端的 user-agent 里抠出版本号。
+ *
+ * 真 Claude Code 发的是 claude-cli/2.1.293 (external, cli)。
+ * 归因头的 cc_version 段和指纹都吃这个版本号 —— **用客户端自己的版本**，
+ * 网关就不会因为官方升级而跟客户端对不上：
+ * 客户端升到 2.2.0，它自己算指纹用 2.2.0，网关转发时也按 2.2.0 处理。
+ *
+ * 抠不出来（客户端没带 UA，或不是 Claude Code 的 UA）返回 null，
+ * 由调用方决定退回哪个默认值。
+ */
+export function clientVersion(userAgent: unknown): string | null {
+  if (typeof userAgent !== "string") return null;
+  const m = /^claude-(?:cli|code)\/(\d+\.\d+\.\d+)/i.exec(userAgent.trim());
+  return m ? (m[1] ?? null) : null;
+}
+
 /** 取第一条非 meta 的 user 文本。对应二进制的 moe() */
 export function firstUserText(messages: unknown): string {
   if (!Array.isArray(messages)) return "";
