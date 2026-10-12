@@ -145,9 +145,9 @@ ok("store 暴露 resetSecret", src("../store/apikeys.ts").includes("resetSecret"
  * 之前这里写的是 reqId / ip / keyName / tokensIn / blocked，五个全对不上，
  * 结果整片列都显示 "-" —— 所以拿后端返回的字段名反过来钉住前端。
  */
-const logsSrc = src("../store/logs.ts");
+const logsSrc = src("../store/logs");
 const logsReturn = logsSrc.slice(logsSrc.indexOf("rows: rows.map"), logsSrc.indexOf("total", logsSrc.indexOf("rows: rows.map")));
-const retFields = [...logsReturn.matchAll(/^\s{8}([a-zA-Z]+):/gm)].map((m) => m[1]);
+const retFields = [...logsReturn.matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]);
 ok("取到了后端返回的字段名", retFields.length > 15, "共 " + retFields.length + " 个");
 /* 只看请求日志那一段的列定义，别把整个文件里所有 r.* 都算进来 */
 const reqlogStart = viewsSrc.indexOf('label:"req-id"');
