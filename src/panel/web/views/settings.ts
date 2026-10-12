@@ -16,8 +16,7 @@ import { ADMIN_JS } from "./settings/admin.ts";
 export const SETTINGS_JS =
   MODEL_CARD_JS +
   EGRESS_CARD_JS +
-  String.raw`
-function renderSettings(box){
+  String.raw`function renderSettings(box){
   var host = h("div");
   box.appendChild(host);
   CG.onRefresh(function(){

@@ -1,6 +1,5 @@
 /** 设置 · 模型上下文限制卡片 */
-export const LIMITS_CARD_JS = String.raw`
-function limitsCard(){
+export const LIMITS_CARD_JS = String.raw`function limitsCard(){
   var out = h("div",{});
   var btn = h("button",{class:"el-button el-button--primary",type:"button",text:"保存"});
   var rows = [];

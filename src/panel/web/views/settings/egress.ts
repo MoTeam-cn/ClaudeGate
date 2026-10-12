@@ -1,6 +1,5 @@
 /** 设置 · 出口/代理卡片 */
-export const EGRESS_CARD_JS = String.raw`
-function egressCard(){
+export const EGRESS_CARD_JS = String.raw`function egressCard(){
   var out = h("div",{});
   var btn = h("button",{class:"el-button",type:"button",text:"立即检查"});
 

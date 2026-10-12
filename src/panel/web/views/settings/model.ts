@@ -1,6 +1,5 @@
 /** 设置 · 模型目录卡片 */
 export const MODEL_CARD_JS = String.raw`
-
 /* ============ 设置 ============ */
 /* 模型目录卡片。清单来自 Claude Code 的远端目录，进程内只留一份 */
 function modelCard(){

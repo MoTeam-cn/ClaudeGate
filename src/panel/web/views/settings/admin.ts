@@ -1,6 +1,5 @@
 /** 设置 · 管理密钥卡片与重置/一次性显示弹窗 */
-export const ADMIN_JS = String.raw`
-function adminKeyCard(){
+export const ADMIN_JS = String.raw`function adminKeyCard(){
   var host = h("div");
   function load(){
     CG.clear(host);
