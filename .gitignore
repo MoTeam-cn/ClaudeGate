@@ -6,6 +6,9 @@ data-preview/
 .env.local
 *.log
 
+# 提交信息临时文件（别被 git add -A 卷进去）
+msg.tmp
+
 # 抓包脚本的产物
 probe-out/
 probe-raw/
