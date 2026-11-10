@@ -153,6 +153,9 @@ const bad = await gw.tokenRefresh.refreshOne(failing.id);
 eq("failed 记成 1", bad.failed, 1);
 eq("结果里 ok 是 false", bad.results[0]?.ok, false);
 ok("带了错误原因", typeof bad.results[0]?.error === "string" && bad.results[0]!.error!.length > 0);
+/* 上游的真实拒绝原因不能被通用文案盖掉 —— 否则面板上只看得到「refresh token rejected」 */
+ok("错误里保留了上游原因", String(bad.results[0]?.error ?? "").includes("invalid_grant"),
+  "got=" + String(bad.results[0]?.error));
 const st1 = gw.tokenRefresh.state();
 ok("state.lastError 有值", typeof st1.lastError === "string" && st1.lastError!.length > 0);
 ok("totalFailed 累加了", st1.totalFailed >= 1);

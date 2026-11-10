@@ -54,7 +54,14 @@ export function createCredentialManager(cfg: Config, log: Logger, accounts: Acco
       /* 刷新令牌被拒基本等于号废了，拉长冷却让调度器避开 */
       const dead = /invalid_grant|invalid_client|40[13]/.test(msg);
       accounts.markError(account.id, "refresh failed: " + msg, dead ? 30 * 60_000 : 60_000);
-      if (dead) accounts.setStatus(account.id, "error", "refresh token rejected");
+      /*
+       * setStatus 是整列覆盖 last_error —— 只写「refresh token rejected」的话，
+       * 上面 markError 记下的真实原因（HTTP 400 invalid_grant 之类）会被盖掉，
+       * 面板上就只剩一句通用文案，没法判断到底是哪种拒绝。必须把详情带过去。
+       */
+      if (dead) {
+        accounts.setStatus(account.id, "error", "refresh token rejected: " + msg.slice(0, 240));
+      }
       return account;
     }
   }
