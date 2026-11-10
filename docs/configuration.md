@@ -111,6 +111,16 @@ OAuth 账号的 `access_token` 由网关**后台自动维护**：每隔 `TOKEN_R
 **跳过的号**：`apikey`、没有 `refresh_token` 的、`disabled` 的，
 以及 `expires_at` 为空的（建号时没拿到 `expires_in`，只能等请求路径兜底）。
 
+**refresh_token 失效怎么办**：一旦上游回 `invalid_grant` / `invalid_client` / 401 / 403，
+这个号的刷新链就断了，巡检怎么试都没用（面板上会显示
+`refresh token rejected: <上游原文>`）。这时用账号行「更多操作 → **重新授权**」：
+生成授权链接 → 在新标签页登录 → 把页面给的 `code` 粘回来。
+它把新令牌**写回这个号**，不是新建 —— 备注名与 `deviceId` 这类指纹绑定都不会丢，
+同时把 `status` 拉回 `active`、清掉 `error_count` / `last_error` / 冷却 / 耗尽状态。
+
+> 重新授权不会自动退掉别处的登录。如果同一个号还在另一个网关或客户端里登着，
+> 两边会互相把对方的 refresh_token 刷作废 —— 新拿到的还会再断一次。
+
 **手动刷新**：面板账号页「刷新凭证」，或
 `POST /panel/api?action=account.token` 带 `{"id":"acc_xxx"}`（单个）
 或 `{"all":true}`（全部）。它**不看剩余时间强制换一次**，用于「怀疑令牌坏了」

@@ -85,6 +85,7 @@ function renderAccounts(box){
             box2.appendChild(h("button",{class:"el-button el-button--small",title:"重新读取这个号的订阅信息（真名 / 邮箱 / 套餐）",text:"刷新",onclick:function(){ actRefreshAccount(a.id); }}));
             box2.appendChild(CG.moreMenu([
               { label:"刷新凭证", title:"强制换一次 access_token（平时后台巡检会自动刷，这里是手动兜底）", run:function(){ return actRefreshToken(a.id); } },
+              { label:"重新授权", title:"refresh_token 失效（refresh token rejected）时用新的授权码重建凭证。原地覆盖，设备指纹不会丢", run:function(){ return actRelogin(a); } },
               { label:"恢复额度状态", title:"把这个号从耗尽 / 出错状态恢复", run:function(){ return actRevive(a.id); } },
               { label:a.status==="disabled"?"启用":"停用", title:a.status==="disabled"?"重新启用这个号":"暂时停用这个号", run:function(){ return actSetStatus(a); } },
               { divider:true },

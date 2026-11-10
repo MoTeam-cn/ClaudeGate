@@ -1,8 +1,7 @@
 import { sendJson } from "../../http/respond.ts";
 import { clampInt } from "../../utils.ts";
 import { fetchOauthProfile, profileLabel } from "../../pool/profile.ts";
-import { startOAuth, finishOAuth } from "../../oauth-flow.ts";
-import type { Account, UsageSnapshot } from "../../types.ts";
+import type { Account } from "../../types.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { asBool, publicAccount, str } from "./views.ts";
 import type { PanelDeps } from "./types.ts";
@@ -19,50 +18,6 @@ export async function postAccount(
   const { cfg, accounts } = deps.ctx;
 
   switch (action) {
-    /* 授权登录第一步：生成 PKCE、记下 pending、把链接给前端让用户去登录。
-       面板固定走 manual 回调（platform.claude.com/oauth/code/callback），
-       因为面板可能在内网、浏览器与网关不在一台机器上，localhost 回调够不着。 */
-    case "oauth.start": {
-      const started = startOAuth(deps.ctx, { redirectUri: cfg.oauthManualRedirect, mode: "manual" });
-      deps.ctx.log.info("panel: oauth start state=" + started.state.slice(0, 8));
-      sendJson(res, 200, { ok: true, data: { state: started.state, authorizeUrl: started.authorizeUrl, redirectUri: started.redirectUri, mode: started.mode } });
-      return true;
-    }
-
-    /* 授权登录第二步：拿回调码换令牌并建号。授权页给的是 code 或 code#state，两种都认 */
-    case "oauth.finish": {
-      const state = str(body.state).trim();
-      const code = str(body.code).trim();
-      if (!state || !code) {
-        sendJson(res, 400, { error: { message: "缺少 state 或授权码", code: "invalid_input" } });
-        return true;
-      }
-      try {
-        const done = await finishOAuth(deps.ctx, state, code);
-        deps.ctx.log.info("panel: oauth finish account=" + done.account.id + " email=" + String(done.email ?? "-"));
-
-        /* 建完号顺手查一次额度，省得再手点「查用量」。
-           订阅号才有这个接口；超时压到 8 秒，别把面板拖住。
-           账号此时已经建好了，这里失败也不影响它 */
-        let usage: UsageSnapshot | null = null;
-        if (done.account.kind === "oauth") {
-          const r = await deps.refreshUsage(done.account, 8000);
-          usage = r.snap;
-          deps.ctx.log.info("panel: oauth usage for " + done.account.id + " ok=" + r.snap.ok + (r.snap.ok ? "" : " err=" + String(r.snap.error ?? "")));
-        }
-        /* 把档案一并带回去：面板可以顺手显示套餐档位，不用再单开一个接口 */
-        sendJson(res, 200, {
-          ok: true,
-          data: { ...publicAccount(done.account), usage, displayName: done.displayName, profile: done.profile }
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        deps.ctx.log.warn("panel: oauth finish failed: " + msg);
-        sendJson(res, 400, { error: { message: msg, code: "oauth_failed" } });
-      }
-      return true;
-    }
-
     case "account.create": {
       const kind = str(body.kind, "apikey") === "oauth" ? "oauth" : "apikey";
       const secret = str(body.secret).trim();

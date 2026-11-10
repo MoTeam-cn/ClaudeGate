@@ -3,6 +3,7 @@ import { readJson } from "../../http/body.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { PanelDeps } from "./types.ts";
 import { postAccount } from "./post-account.ts";
+import { postOauth } from "./post-oauth.ts";
 import { postKey } from "./post-key.ts";
 import { postMisc } from "./post-misc.ts";
 
@@ -22,6 +23,7 @@ export async function handlePost(
 ): Promise<void> {
   const body = (await readJson(req, deps.ctx.cfg.maxBodyBytes)) as Record<string, unknown>;
 
+  if (await postOauth(deps, req, res, url, action, body)) return;
   if (await postAccount(deps, req, res, url, action, body)) return;
   if (await postKey(deps, req, res, url, action, body)) return;
   if (await postMisc(deps, req, res, url, action, body)) return;

@@ -43,6 +43,8 @@ export interface PendingAuth {
   redirectUri: string;
   createdAt: number;
   mode: "auto" | "manual";
+  /** 重新授权时指向要覆盖的账号；添加新号时为 undefined */
+  accountId?: string;
 }
 
 export interface GatewayTokenPayload {

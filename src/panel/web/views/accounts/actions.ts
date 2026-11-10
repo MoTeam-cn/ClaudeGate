@@ -90,6 +90,76 @@ function actRefreshTokenAll(){
   }).catch(CG.showErr);
 }
 
+/* 重新授权：refresh_token 失效（上游回 invalid_grant）时唯一能救回来的办法。
+   和「添加账号」的区别是把结果**写回这个号**，不是新建 ——
+   deviceId 这类指纹绑定跟着保留，不会因为删号重建而换一张脸 */
+function actRelogin(a){
+  var started = null;
+  var linkInput = h("input",{class:"el-input__inner",readonly:"readonly",placeholder:"生成中…"});
+  var copyBtn = h("button",{class:"el-button",type:"button",text:"复制"});
+  var openBtn = h("button",{class:"el-button el-button--primary",type:"button",text:"打开授权页"});
+  copyBtn.disabled = true;
+  openBtn.disabled = true;
+  var codeInput = h("input",{class:"el-input__inner",placeholder:"形如 xxx#yyy，整段粘进来即可"});
+
+  copyBtn.addEventListener("click", function(){
+    if(!started) return;
+    var ok = copyText(started.authorizeUrl);
+    CG.toast(ok ? "链接已复制" : "复制失败，请手动选中复制", ok ? "success" : "warning");
+  });
+  openBtn.addEventListener("click", function(){
+    if(!started) return;
+    var w = window.open(started.authorizeUrl, "_blank", "noopener,noreferrer");
+    if(!w) CG.toast("浏览器拦了新窗口，请用「复制」手动打开","warning");
+  });
+
+  var body = h("div",{},[
+    h("div",{class:"el-form-item"},[
+      h("div",{class:"el-form-item__label",text:"账号"}),
+      h("div",{},[
+        h("div",{text:(a.label || a.id) + (a.email ? "（"+a.email+"）" : "")}),
+        h("div",{class:"cg-step__hint",text:"新凭证会覆盖到这个号上，备注名与设备指纹都不变。"})
+      ])
+    ]),
+    h("div",{class:"el-form-item"},[
+      h("div",{class:"el-form-item__label",text:"授权链接"}),
+      h("div",{class:"cg-linkrow"},[ linkInput, copyBtn, openBtn ])
+    ]),
+    h("div",{class:"el-form-item"},[
+      h("div",{class:"el-form-item__label",text:"授权码"}),
+      h("div",{},[ codeInput ]),
+      h("div",{class:"cg-step__hint",text:"在新标签页登录完成后，页面会显示一段 code，整段复制粘进来即可。"})
+    ])
+  ]);
+
+  CG.api("oauth.relogin.start",{ id:a.id }).then(function(r){
+    started = r;
+    linkInput.value = r.authorizeUrl;
+    copyBtn.disabled = false;
+    openBtn.disabled = false;
+    codeInput.focus();
+    CG.toast("授权链接已生成，去新标签页完成登录","success");
+  }).catch(CG.showErr);
+
+  CG.dialog({
+    title:"重新授权", wide:true, body:body, okText:"用这个 code 换新令牌",
+    onOk:function(){
+      if(!started){ CG.toast("授权链接还没生成","warning"); return false; }
+      var code = codeInput.value.trim();
+      if(!code){ CG.toast("先把授权码粘进来","warning"); return false; }
+      CG.toast("正在换令牌并查询额度…","info",8000);
+      return CG.api("oauth.relogin.finish",{ state:started.state, code:code }).then(function(acc){
+        if(acc && acc.switched){
+          CG.toast("注意：授权到的是另一个号（" + (acc.email || "未知邮箱") + "），原凭证已被覆盖","warning",9000);
+        }else{
+          CG.toast("凭证已重建，号已恢复","success");
+        }
+        CG.refresh();
+      });
+    }
+  });
+}
+
 function actDeleteAccount(a){
   CG.dialog({
     title:"删除账号", okText:"删除",
