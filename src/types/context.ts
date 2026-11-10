@@ -7,6 +7,7 @@ import type { LogStore } from "../store/logs.ts";
 import type { SettingsStore } from "../store/settings.ts";
 import type { Scheduler } from "../pool/scheduler.ts";
 import type { CredentialManager } from "../pool/credentials.ts";
+import type { TokenRefreshLoop } from "../pool/refresh-loop.ts";
 import type { QuotaGuard } from "../middleware/quota.ts";
 import type { ModelCatalogHandle } from "../model-catalog.ts";
 
@@ -110,6 +111,8 @@ export interface GatewayContext {
   settings: SettingsStore;
   scheduler: Scheduler;
   credentials: CredentialManager;
+  /** access_token 的后台巡检；请求路径上的 credentials.ensure 只是兜底 */
+  tokenRefresh: TokenRefreshLoop;
   quota: QuotaGuard;
   modelCatalog: ModelCatalogHandle;
 }

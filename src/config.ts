@@ -87,6 +87,11 @@ const guardMode: GuardMode = (GUARD_MODES as readonly string[]).includes(rawMode
   const contextHeadroom =
     Number.isFinite(headroomRaw) && headroomRaw >= 0 && headroomRaw <= 1 ? headroomRaw : 0.1;
 
+  /* 令牌巡检：默认开、每 60 秒扫一遍、剩余不足 10 分钟就提前刷 */
+  const tokenAutoRefresh = String(env.TOKEN_AUTO_REFRESH ?? "on").toLowerCase() !== "off";
+  const tokenRefreshIntervalSec = Math.max(15, Math.min(3600, num(env.TOKEN_REFRESH_INTERVAL_SEC, 60)));
+  const tokenRefreshLeadSec = Math.max(60, Math.min(24 * 3600, num(env.TOKEN_REFRESH_LEAD_SEC, 600)));
+
   const rawIdentity = String(env.IDENTITY_MODE ?? "block").toLowerCase();
   const identityMode: Config["identityMode"] = (IDENTITY_MODES as readonly string[]).includes(rawIdentity)
     ? (rawIdentity as Config["identityMode"])
@@ -103,6 +108,9 @@ const guardMode: GuardMode = (GUARD_MODES as readonly string[]).includes(rawMode
     contextGuard,
     contextHeadroom,
     identityMode,
+    tokenAutoRefresh,
+    tokenRefreshIntervalSec,
+    tokenRefreshLeadSec,
     imageMaxTokens: Math.max(1, num(env.IMAGE_MAX_TOKENS, 1600)),
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     secret: env.SECRET ?? "",

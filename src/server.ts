@@ -10,6 +10,7 @@ import { createLogStore } from "./store/logs.ts";
 import { createSettingsStore } from "./store/settings.ts";
 import { createScheduler } from "./pool/scheduler.ts";
 import { createCredentialManager } from "./pool/credentials.ts";
+import { createTokenRefreshLoop } from "./pool/refresh-loop.ts";
 import { createModelCatalog } from "./model-catalog.ts";
 import { applyModelDisabled, applyModelLimits } from "./models.ts";
 import type { ModelCatalogHandle } from "./model-catalog.ts";
@@ -46,6 +47,7 @@ import type {
   Store
 } from "./types.ts";
 import type { AccountStore, AdminKeyHandle, ApiKeyStore, LogStore, SettingsStore, Scheduler, CredentialManager, QuotaGuard, Database } from "./types.ts";
+import type { TokenRefreshLoop } from "./pool/refresh-loop.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -61,6 +63,8 @@ export interface Gateway {
   readonly settings: SettingsStore;
   readonly scheduler: Scheduler;
   readonly credentials: CredentialManager;
+  /** access_token 后台巡检。start() 由入口在监听成功后调用，库使用者也可自行控制 */
+  readonly tokenRefresh: TokenRefreshLoop;
   readonly quota: QuotaGuard;
   readonly modelCatalog: ModelCatalogHandle;
   readonly adminKey: AdminKeyHandle;
@@ -148,6 +152,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
 
   const scheduler = createScheduler(accounts, log);
   const credentials = createCredentialManager(cfg, log, accounts);
+  const tokenRefresh = createTokenRefreshLoop(cfg, log, accounts, credentials);
   const quota = createQuotaGuard(keys);
 
   try {
@@ -165,7 +170,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
      早建一步就会绕过代理直连，正好踩中这个项目最想避免的坑 */
   const modelCatalog = createModelCatalog(cfg, log);
 
-  const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, quota, modelCatalog };
+  const ctx: GatewayContext = { cfg, adminKey, log, store, db, accounts, keys, logs, settings, scheduler, credentials, tokenRefresh, quota, modelCatalog };
   /* 隐藏清单：部署级 env + 面板里勾掉的，取并集 */
   applyModelDisabled(ctx);
   /* 上下文限制：env 的 MODEL_LIMITS 是底座，面板里配的同名项覆盖它 */
@@ -237,6 +242,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
     settings,
     scheduler,
     credentials,
+    tokenRefresh,
     quota,
     modelCatalog,
     adminKey,
@@ -256,6 +262,7 @@ export function createGateway(env: Record<string, string | undefined> = process.
     close(): Promise<void> {
       return new Promise((resolve) => {
         scheduler.stop();
+        tokenRefresh.stop();
         quota.stop();
         logs.close();
         server.close(() => {

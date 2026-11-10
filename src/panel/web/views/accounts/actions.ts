@@ -61,6 +61,35 @@ function actRefreshAll(){
   }).catch(CG.showErr);
 }
 
+/* 刷新凭证：强制换一次 access_token。
+   平时由后台巡检自动维护（每 60 秒扫一遍，剩余不足 10 分钟就提前刷），
+   这个按钮是手动兜底 —— 怀疑令牌坏了、或巡检报错时用 */
+function actRefreshToken(id){
+  CG.toast("正在刷新凭证…","info",1500);
+  CG.api("account.token",{ id:id }).then(function(r){
+    if(r && r.ok){
+      var left = r.expiresAt ? Math.max(0, Math.round((r.expiresAt - Date.now()/1000)/60)) : null;
+      CG.toast(left === null ? "凭证已刷新" : ("凭证已刷新，剩余 " + left + " 分钟"), "success", 4000);
+    }else{
+      CG.toast("刷新失败：" + ((r && r.error) || "未知原因"), "error", 6000);
+    }
+    CG.refresh();
+  }).catch(CG.showErr);
+}
+function actRefreshTokenAll(){
+  CG.toast("正在刷新全部凭证…","info",2000);
+  CG.api("account.token",{ all:true }).then(function(r){
+    var okn = (r && r.refreshed) || 0;
+    var bad = (r && r.failed) || 0;
+    var skip = (r && r.skipped) || 0;
+    var msg = "已刷新 " + okn + " 个";
+    if(skip) msg += "，跳过 " + skip + " 个";
+    if(bad) msg += "，失败 " + bad + " 个";
+    CG.toast(msg, bad ? "warning" : "success", 5000);
+    CG.refresh();
+  }).catch(CG.showErr);
+}
+
 function actDeleteAccount(a){
   CG.dialog({
     title:"删除账号", okText:"删除",

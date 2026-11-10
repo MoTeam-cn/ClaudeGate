@@ -75,6 +75,13 @@ export interface Config {
   stegoMode: StegoMode;
   reqIdInResponse: ReqIdMode;
 
+  /** access_token 后台巡检开关。关掉就只剩请求路径上的兜底 */
+  tokenAutoRefresh: boolean;
+  /** 巡检间隔（秒），最小 15 */
+  tokenRefreshIntervalSec: number;
+  /** 剩余有效期不足这么多秒就提前刷，最小 60 */
+  tokenRefreshLeadSec: number;
+
   trustProxy: boolean;
   adminToken: string;
   /** 主密钥；首次启动自动生成并镜像进 .env */

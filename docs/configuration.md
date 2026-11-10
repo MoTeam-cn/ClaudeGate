@@ -88,6 +88,34 @@
 | `OAUTH_MANUAL_REDIRECT` | 官方回调页 | 手动粘贴授权码时的回调地址 |
 | `OAUTH_PROFILE_URL` | `https://api.anthropic.com/api/oauth/profile` | 订阅账号档案端点。用来把「账号 1」这种占位名换成真实用户名（`account.display_name` / `full_name`），拿不到就退回占位名，不影响建号 |
 
+## 令牌巡检
+
+OAuth 账号的 `access_token` 由网关**后台自动维护**：每隔 `TOKEN_REFRESH_INTERVAL_SEC`
+秒扫一遍号池，剩余有效期不足 `TOKEN_REFRESH_LEAD_SEC` 的提前换掉。
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `TOKEN_AUTO_REFRESH` | `on` | 关掉就只剩请求路径上的兜底 |
+| `TOKEN_REFRESH_INTERVAL_SEC` | `60` | 巡检间隔，最小 15 |
+| `TOKEN_REFRESH_LEAD_SEC` | `600` | 提前量，最小 60 |
+
+**为什么不再「请求来了才刷」**：原来的 `credentials.ensure()` 是请求路径上的检查 ——
+请求到了发现快过期才去换。问题是换的过程中那个请求已经压在路上了，上游一旦在
+这个窗口里返回 401，请求就白失败；并发一多还会几个请求同时发现过期、同时去换。
+
+现在请求路径上那层**保留但只当保险丝**：真触发时会打一条
+`token refreshed on request path (background sweep missed it)` 的 warn，
+并计入 `account.tokenState` 的 `requestPathRefreshes`。**这个数长期非零就说明
+巡检没覆盖住**（间隔调太长、或刷新一直失败），面板能直接看到。
+
+**跳过的号**：`apikey`、没有 `refresh_token` 的、`disabled` 的，
+以及 `expires_at` 为空的（建号时没拿到 `expires_in`，只能等请求路径兜底）。
+
+**手动刷新**：面板账号页「刷新凭证」，或
+`POST /panel/api?action=account.token` 带 `{"id":"acc_xxx"}`（单个）
+或 `{"all":true}`（全部）。它**不看剩余时间强制换一次**，用于「怀疑令牌坏了」
+或「巡检报错」这些情况。状态查询是 `GET /panel/api?action=account.tokenState`。
+
 ## 模型与其他
 
 | 变量 | 默认 | 说明 |

@@ -244,6 +244,40 @@ export async function postAccount(
       return true;
     }
 
+    /*
+     * 刷新凭证：强制换一次 access_token，不看剩余有效期。
+     *
+     * 平时令牌由后台巡检自动维护（pool/refresh-loop.ts），这个按钮是给
+     * 「怀疑令牌坏了 / 刚在别处登出导致 refresh_token 轮换过 / 巡检报了错」
+     * 这些情况留的手动入口。单个与全部都支持。
+     */
+    case "account.token": {
+      const all = asBool(body.all);
+      const id = str(body.id).trim();
+      const tr = deps.ctx.tokenRefresh;
+
+      if (all) {
+        const out = await tr.sweep(true);
+        deps.ctx.log.info("panel: token refresh all — refreshed=" + out.refreshed + " failed=" + out.failed);
+        sendJson(res, 200, { ok: true, data: out });
+        return true;
+      }
+
+      if (!id) {
+        sendJson(res, 400, { error: { message: "缺少账号 id", code: "bad_request" } });
+        return true;
+      }
+      if (!accounts.get(id)) {
+        sendJson(res, 404, { error: { message: "账号不存在", code: "not_found" } });
+        return true;
+      }
+      const out = await tr.refreshOne(id);
+      const one = out.results[0] ?? null;
+      deps.ctx.log.info("panel: token refresh " + id + " ok=" + String(one?.ok ?? false));
+      sendJson(res, 200, { ok: true, data: one });
+      return true;
+    }
+
     case "account.reset": {
       const id = str(body.id);
       const all = asBool(body.all);

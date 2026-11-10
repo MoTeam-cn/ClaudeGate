@@ -45,7 +45,9 @@ function overview(deps: PanelDeps): Record<string, unknown> {
     },
     keys: keys.list().length,
     stats: logs.stats(),
-    today: keys.todayTotals(dayString())
+    today: keys.todayTotals(dayString()),
+    /* 令牌巡检状态：上次跑的时间、刷了几个、有没有错 */
+    tokenRefresh: deps.ctx.tokenRefresh.state()
   };
 }
 
@@ -70,6 +72,12 @@ export async function handleGet(
 
     case "accounts":
       sendJson(res, 200, { ok: true, data: accounts.list().map(publicAccount) });
+      return;
+
+    /* 令牌后台巡检的状态：上次巡检时间、刷了几个、有没有错，
+       以及「请求路径上兜底刷了几次」—— 这个数长期非零说明巡检没覆盖住 */
+    case "account.tokenState":
+      sendJson(res, 200, { ok: true, data: deps.ctx.tokenRefresh.state() });
       return;
 
     case "keys":

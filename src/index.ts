@@ -27,6 +27,8 @@ async function boot(): Promise<void> {
     }
   }
   const addr = await gw.listen();
+  /* 令牌巡检放在监听之后 —— 它要出网换 token，出口自检已经通过了 */
+  gw.tokenRefresh.start();
   {
     gw.log.info("claude-gateway listening on " + addr.address + ":" + addr.port);
     gw.log.info(
@@ -42,6 +44,11 @@ async function boot(): Promise<void> {
     );
     gw.log.info(
       "pool=" + gw.accounts.list().length + " accounts, " + gw.keys.list().length + " api keys, stego=" + gw.cfg.stegoMode
+    );
+    gw.log.info(
+      "tokenRefresh=" + (gw.cfg.tokenAutoRefresh ? "on" : "off") +
+      " interval=" + gw.cfg.tokenRefreshIntervalSec + "s" +
+      " lead=" + gw.cfg.tokenRefreshLeadSec + "s"
     );
     /* 登录密钥只在首次派发时打印这一次，之后每次启动都不再打。
        忘了就去面板「设置」里重置，或删 data/admin.json 重新派发 */

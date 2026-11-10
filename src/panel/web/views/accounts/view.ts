@@ -84,6 +84,7 @@ function renderAccounts(box){
             box2.appendChild(h("button",{class:"el-button el-button--small",title:"立刻查询这个号的额度",text:"用量",onclick:function(){ actFetchUsage(a.id); }}));
             box2.appendChild(h("button",{class:"el-button el-button--small",title:"重新读取这个号的订阅信息（真名 / 邮箱 / 套餐）",text:"刷新",onclick:function(){ actRefreshAccount(a.id); }}));
             box2.appendChild(CG.moreMenu([
+              { label:"刷新凭证", title:"强制换一次 access_token（平时后台巡检会自动刷，这里是手动兜底）", run:function(){ return actRefreshToken(a.id); } },
               { label:"恢复额度状态", title:"把这个号从耗尽 / 出错状态恢复", run:function(){ return actRevive(a.id); } },
               { label:a.status==="disabled"?"启用":"停用", title:a.status==="disabled"?"重新启用这个号":"暂时停用这个号", run:function(){ return actSetStatus(a); } },
               { divider:true },
@@ -99,6 +100,7 @@ function renderAccounts(box){
         rowId:function(a){ return a.id; },
         batchActions:[
           { label:"全部刷新信息", run:function(){ return actRefreshAll(); } },
+          { label:"全部刷新凭证", run:function(){ return actRefreshTokenAll(); } },
           { label:"批量启用", run:function(ids){ return actBatchStatus(ids, "active"); } },
           { label:"批量停用", run:function(ids){ return actBatchStatus(ids, "disabled"); } },
           { label:"批量查用量", run:function(ids){ return actBatchUsage(ids); } },
